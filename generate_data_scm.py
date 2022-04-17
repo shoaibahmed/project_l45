@@ -33,8 +33,11 @@ scm = StructuralCausalModel({
 })
 
 ds = scm.sample(n_samples=100)
-ds.to_csv("dataset.csv", index=False, header=True)
+ds.to_csv("train_dataset.csv", index=False, header=True)
 dot = scm.cgm.draw()
 print(dot)
 dot.render('out_real.gv', format='jpg')
 print(ds)
+
+ds = scm.sample(n_samples=1000)
+ds.to_csv("test_dataset.csv", index=False, header=True)
