@@ -5,6 +5,7 @@ Code adapted from: https://github.com/AnTao97/dgcnn.pytorch
 from __future__ import print_function
 import os
 import argparse
+from matplotlib import markers
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -18,6 +19,7 @@ import sklearn.metrics as metrics
 from dgcnn import DGCNN_Reg
 
 import pandas as pd
+import matplotlib.pyplot as plt
 
 
 def cal_loss(pred, gold, smoothing=True):
@@ -60,18 +62,13 @@ def _init_():
         os.makedirs('outputs/'+args.exp_name)
     if not os.path.exists('outputs/'+args.exp_name+'/'+'models'):
         os.makedirs('outputs/'+args.exp_name+'/'+'models')
-    # os.system('cp main_cls.py outputs'+'/'+args.exp_name+'/'+'main_cls.py.backup')
-    # os.system('cp model.py outputs' + '/' + args.exp_name + '/' + 'model.py.backup')
-    # os.system('cp util.py outputs' + '/' + args.exp_name + '/' + 'util.py.backup')
-    # os.system('cp data.py outputs' + '/' + args.exp_name + '/' + 'data.py.backup')
+    os.system('cp dgcnn.py outputs'+'/'+args.exp_name+'/'+'dgcnn.py.backup')
+    os.system('cp train.py outputs' + '/' + args.exp_name + '/' + 'train.py.backup')
+    os.system('cp generate_data_scm.py outputs' + '/' + args.exp_name + '/' + 'generate_data_scm.py.backup')
+
 
 def train(args, io):
     device = torch.device("cuda" if args.cuda else "cpu")
-
-    # train_loader = DataLoader(ModelNet40(partition='train', num_points=args.num_points), num_workers=8,
-    #                           batch_size=args.batch_size, shuffle=True, drop_last=True)
-    # test_loader = DataLoader(ModelNet40(partition='test', num_points=args.num_points), num_workers=8,
-    #                          batch_size=args.test_batch_size, shuffle=True, drop_last=False)
 
     # Load train set
     train_set_df = pd.read_csv("train_dataset.csv")
@@ -112,6 +109,8 @@ def train(args, io):
     criterion = nn.MSELoss()
 
     best_test_loss = 10000.
+    train_loss_list = []
+    test_loss_list = []
     for epoch in range(args.epochs):
         ####################
         # Train
@@ -137,8 +136,10 @@ def train(args, io):
                 for param_group in opt.param_groups:
                     param_group['lr'] = 1e-5
 
-        outstr = 'Train %d, loss: %.6f' % (epoch, train_loss*1.0/count)
+        train_loss = train_loss * 1.0 / count
+        outstr = 'Train %d, loss: %.6f' % (epoch, train_loss)
         io.cprint(outstr)
+        train_loss_list.append(float(train_loss))
 
         ####################
         # Test
@@ -152,11 +153,36 @@ def train(args, io):
             loss = criterion(output, label)
             count += batch_size
             test_loss += loss.item() * batch_size
-        outstr = 'Test %d, loss: %.6f' % (epoch, test_loss*1.0/count)
+
+        test_loss = test_loss * 1.0 / count
+        outstr = 'Test %d, loss: %.6f' % (epoch, test_loss)
+        test_loss_list.append(float(test_loss))
+
         io.cprint(outstr)
         if test_loss < best_test_loss:
             best_test_loss = test_loss
             torch.save(model.state_dict(), 'outputs/%s/models/model.pth' % args.exp_name)
+    
+    assert len(train_loss_list) == args.epochs
+    assert len(test_loss_list) == args.epochs
+
+    # Plot the results in the form of a figure
+    plt.figure(figsize=(12, 8))
+
+    plt.plot(train_loss_list, label='Train loss', color='b')
+    plt.plot(test_loss_list, label='Test loss', color='r')
+
+    plt.xlabel('Epochs')
+    plt.ylabel('Accuracy (%)')
+    plt.title("DGCNN trained on synthetic realizations of an SCM")
+    plt.legend()
+    plt.tight_layout()
+
+    output_file = 'outputs/%s/models/training_dynamics.png' % args.exp_name
+    if output_file is not None:
+        plt.savefig(output_file, dpi=300)
+    plt.show()
+    plt.close('all')
 
 
 def test(args, io):
