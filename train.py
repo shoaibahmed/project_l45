@@ -68,6 +68,11 @@ def _init_():
 
 
 def train(args, io):
+    if os.path.exists(args.model_output_file):
+        print("Output file already exists:", args.model_output_file)
+        print("Returning without executing the training process...")
+        return
+    
     device = torch.device("cuda" if args.cuda else "cpu")
 
     # Load train set
@@ -161,7 +166,7 @@ def train(args, io):
         io.cprint(outstr)
         if test_loss < best_test_loss:
             best_test_loss = test_loss
-            torch.save(model.state_dict(), 'outputs/%s/models/model.pth' % args.exp_name)
+            torch.save(model.state_dict(), args.model_output_file)
     
     assert len(train_loss_list) == args.epochs
     assert len(test_loss_list) == args.epochs
@@ -186,41 +191,37 @@ def train(args, io):
 
 
 def test(args, io):
-    raise NotImplementedError
-    test_loader = DataLoader(ModelNet40(partition='test', num_points=args.num_points),
-                             batch_size=args.test_batch_size, shuffle=True, drop_last=False)
-
+    print("Evaluating the pretrained model...")
     device = torch.device("cuda" if args.cuda else "cpu")
+    
+    # Load test set
+    test_set_df = pd.read_csv("test_dataset.csv")
+    test_set_np = test_set_df.to_numpy()
 
-    #Try to load models
-    if args.model == 'pointnet':
-        model = PointNet(args).to(device)
-    elif args.model == 'dgcnn':
-        model = DGCNN_cls(args).to(device)
-    else:
-        raise Exception("Not implemented")
+    test_set_tensor = torch.from_numpy(test_set_np).to(device)[:, None, :].float()  # Add synthetic channel dim
+    test_set_input = test_set_tensor.clone()
+    test_set_input[:, 1:] = 0.  # Mask all other entries except x1
+    test_set_target = test_set_tensor
+    print(f"Test shape: {test_set_tensor.shape}")
 
-    model = nn.DataParallel(model)
-    model.load_state_dict(torch.load(args.model_path))
+    # Create the model
+    model = DGCNN_Reg(args, return_features=True).to(device)
+    model.load_state_dict(torch.load(args.model_output_file))  # Load the checkpoint
     model = model.eval()
-    test_acc = 0.0
-    count = 0.0
-    test_true = []
-    test_pred = []
-    for data, label in test_loader:
 
-        data, label = data.to(device), label.to(device).squeeze()
-        data = data.permute(0, 2, 1)
+    criterion = nn.MSELoss()
+    
+    count = 0
+    test_loss = 0.0
+    for data, label in [(test_set_input, test_set_target)]:
         batch_size = data.size()[0]
-        logits = model(data)
-        preds = logits.max(dim=1)[1]
-        test_true.append(label.cpu().numpy())
-        test_pred.append(preds.detach().cpu().numpy())
-    test_true = np.concatenate(test_true)
-    test_pred = np.concatenate(test_pred)
-    test_acc = metrics.accuracy_score(test_true, test_pred)
-    avg_per_class_acc = metrics.balanced_accuracy_score(test_true, test_pred)
-    outstr = 'Test :: test acc: %.6f, test avg acc: %.6f'%(test_acc, avg_per_class_acc)
+        output, distances = model(data)
+        loss = criterion(output, label)
+        count += batch_size
+        test_loss += loss.item() * batch_size
+    test_loss = test_loss * 1.0 / count
+    
+    outstr = 'Test loss: %.6f' % (test_loss)
     io.cprint(outstr)
 
 
@@ -263,14 +264,13 @@ if __name__ == "__main__":
                         help='Dimension of embeddings')
     parser.add_argument('--k', type=int, default=4, metavar='N',
                         help='Num of nearest neighbors to use')
-    parser.add_argument('--model_path', type=str, default='', metavar='N',
-                        help='Pretrained model path')
     args = parser.parse_args()
 
     _init_()
 
     io = IOStream('outputs/' + args.exp_name + '/run.log')
     io.cprint(str(args))
+    args.model_output_file = 'outputs/%s/models/model.pth' % args.exp_name
 
     args.cuda = not args.no_cuda and torch.cuda.is_available()
     torch.manual_seed(args.seed)
