@@ -23,13 +23,13 @@ scm = StructuralCausalModel({
     "x1": lambda     n_samples: np.random.normal(loc=0, scale=0.1, size=n_samples),
     "x2": lambda x1, n_samples: x1 * 2,
     "x3": lambda x1, n_samples: x1 * 3,
-    "x4": lambda x2, x3, n_samples: x2 * 2 + x3 * 3,
+    "x4": lambda x2, x3, n_samples: (x2 * 0.5 + x3 * 0.5),
     "x5": lambda x4, n_samples: x4 * 2,
     "x6": lambda x4, n_samples: x4 * 3,
-    "x7": lambda x5, x6, n_samples: x5 * 2 + x6 * 3,
+    "x7": lambda x5, x6, n_samples: (x5 * 0.5 + x6 * 0.5),
     "x8": lambda x7, n_samples: x7 * 2,
     "x9": lambda x7, n_samples: x7 * 3,
-    "x10": lambda x8, x9, n_samples: x8 * 2 + x9 * 3,
+    "x10": lambda x8, x9, n_samples:  (x8 * 0.5 + x9 * 0.5),
 })
 
 ds = scm.sample(n_samples=100)

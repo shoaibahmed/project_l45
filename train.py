@@ -76,18 +76,18 @@ def train(args, io):
     # Load train set
     train_set_df = pd.read_csv("train_dataset.csv")
     train_set_np = train_set_df.to_numpy()
-    
+
     # Load test set
     test_set_df = pd.read_csv("test_dataset.csv")
     test_set_np = test_set_df.to_numpy()
-    
+
     # Convert the train and test set to tensors
-    train_set_tensor = torch.from_numpy(train_set_np).to(device)[:, None, :]  # Add synthetic channel dim
+    train_set_tensor = torch.from_numpy(train_set_np).to(device)[:, None, :].float()  # Add synthetic channel dim
     train_set_input = train_set_tensor.clone()
     train_set_input[:, 1:] = 0.  # Mask all other entries except x1
     train_set_target = train_set_tensor
 
-    test_set_tensor = torch.from_numpy(test_set_np).to(device)[:, None, :]  # Add synthetic channel dim
+    test_set_tensor = torch.from_numpy(test_set_np).to(device)[:, None, :].float()  # Add synthetic channel dim
     test_set_input = test_set_tensor.clone()
     test_set_input[:, 1:] = 0.  # Mask all other entries except x1
     test_set_target = test_set_tensor
@@ -95,11 +95,11 @@ def train(args, io):
 
     # Create the model
     model = DGCNN_Reg(args).to(device)
-    print(str(model))
+    # print(str(model))
 
     if args.use_sgd:
         print("Use SGD")
-        opt = optim.SGD(model.parameters(), lr=args.lr*100, momentum=args.momentum, weight_decay=1e-4)
+        opt = optim.SGD(model.parameters(), lr=args.lr, momentum=args.momentum, weight_decay=1e-4)
     else:
         print("Use Adam")
         opt = optim.Adam(model.parameters(), lr=args.lr, weight_decay=1e-4)
@@ -147,8 +147,6 @@ def train(args, io):
         count = 0.0
         model.eval()
         for data, label in [(test_set_input, test_set_target)]:
-            data, label = data.to(device), label.to(device).squeeze()
-            data = data.permute(0, 2, 1)
             batch_size = data.size()[0]
             output = model(data)
             loss = criterion(output, label)
@@ -216,7 +214,7 @@ if __name__ == "__main__":
                         help='Size of batch)')
     parser.add_argument('--epochs', type=int, default=250, metavar='N',
                         help='number of episode to train ')
-    parser.add_argument('--use_sgd', type=bool, default=True,
+    parser.add_argument('--use_sgd', type=bool, default=False,
                         help='Use SGD')
     parser.add_argument('--lr', type=float, default=0.001, metavar='LR',
                         help='learning rate (default: 0.001, 0.1 if using sgd)')
@@ -237,7 +235,7 @@ if __name__ == "__main__":
                         help='initial dropout rate')
     parser.add_argument('--emb_dims', type=int, default=1024, metavar='N',
                         help='Dimension of embeddings')
-    parser.add_argument('--k', type=int, default=20, metavar='N',
+    parser.add_argument('--k', type=int, default=4, metavar='N',
                         help='Num of nearest neighbors to use')
     parser.add_argument('--model_path', type=str, default='', metavar='N',
                         help='Pretrained model path')

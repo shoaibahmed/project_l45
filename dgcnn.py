@@ -115,7 +115,7 @@ class DGCNN_Cls(nn.Module):
 
 
 class DGCNN_Reg(nn.Module):
-    def __init__(self, args, output_channels=40):
+    def __init__(self, args, output_channels=1):
         super(DGCNN_Reg, self).__init__()
         self.args = args
         self.k = args.k
@@ -126,7 +126,7 @@ class DGCNN_Reg(nn.Module):
         self.bn4 = nn.BatchNorm2d(256)
         self.bn5 = nn.BatchNorm1d(args.emb_dims)
 
-        self.conv1 = nn.Sequential(nn.Conv2d(6, 64, kernel_size=1, bias=False),
+        self.conv1 = nn.Sequential(nn.Conv2d(2, 64, kernel_size=1, bias=False),
                                    self.bn1,
                                    nn.LeakyReLU(negative_slope=0.2))
         self.conv2 = nn.Sequential(nn.Conv2d(64*2, 64, kernel_size=1, bias=False),
@@ -142,7 +142,7 @@ class DGCNN_Reg(nn.Module):
                                    self.bn5,
                                    nn.LeakyReLU(negative_slope=0.2))
         
-        self.reg_layer = nn.Conv1d(args.emb_dims, 1, kernel_size=1, bias=False)
+        self.reg_layer = nn.Conv1d(args.emb_dims, output_channels, kernel_size=1, bias=False)
 
     def forward(self, x):
         batch_size = x.size(0)
