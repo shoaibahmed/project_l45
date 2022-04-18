@@ -25,26 +25,6 @@ from colour import Color
 import matplotlib.pyplot as plt
 
 
-def cal_loss(pred, gold, smoothing=True):
-    ''' Calculate cross entropy loss, apply label smoothing if needed. '''
-
-    gold = gold.contiguous().view(-1)
-
-    if smoothing:
-        eps = 0.2
-        n_class = pred.size(1)
-
-        one_hot = torch.zeros_like(pred).scatter(1, gold.view(-1, 1), 1)
-        one_hot = one_hot * (1 - eps) + (1 - one_hot) * eps / (n_class - 1)
-        log_prb = F.log_softmax(pred, dim=1)
-
-        loss = -(one_hot * log_prb).sum(dim=1).mean()
-    else:
-        loss = F.cross_entropy(pred, gold, reduction='mean')
-
-    return loss
-
-
 class IOStream():
     def __init__(self, path):
         self.f = open(path, 'a')
@@ -70,6 +50,23 @@ def _init_():
     os.system('cp generate_data_scm.py outputs' + '/' + args.exp_name + '/' + 'generate_data_scm.py.backup')
 
 
+def process_dataset(file_name, device):
+    dataset = pd.read_csv(file_name)
+    dataset_np = dataset.to_numpy()
+
+    # Convert the train and test set to tensors
+    dataset_tensor = torch.from_numpy(dataset_np).to(device)[:, None, :].float()  # Add synthetic channel dim
+    dataset_input = dataset_tensor.clone()
+    observed_vars = ["x1", "x2", "x4", "x6", "x8", "x9"]
+    keep_cols = [int(x.replace("x", "")) - 1 for x in observed_vars]
+    print("Keeping the following columns:", keep_cols)
+    for i in range(dataset_input.shape[2]):
+        if i not in keep_cols:
+            dataset_input[:, 0, i] = 0.  # Mask all the entries in that column
+    dataset_target = dataset_tensor
+    return dataset_input, dataset_target
+
+
 def train(args, io):
     if os.path.exists(args.model_output_file):
         print("Output file already exists:", args.model_output_file)
@@ -78,25 +75,11 @@ def train(args, io):
     
     device = torch.device("cuda" if args.cuda else "cpu")
 
-    # Load train set
-    train_set_df = pd.read_csv("train_dataset.csv")
-    train_set_np = train_set_df.to_numpy()
-
-    # Load test set
-    test_set_df = pd.read_csv("test_dataset.csv")
-    test_set_np = test_set_df.to_numpy()
-
-    # Convert the train and test set to tensors
-    train_set_tensor = torch.from_numpy(train_set_np).to(device)[:, None, :].float()  # Add synthetic channel dim
-    train_set_input = train_set_tensor.clone()
-    train_set_input[:, 1:] = 0.  # Mask all other entries except x1
-    train_set_target = train_set_tensor
-
-    test_set_tensor = torch.from_numpy(test_set_np).to(device)[:, None, :].float()  # Add synthetic channel dim
-    test_set_input = test_set_tensor.clone()
-    test_set_input[:, 1:] = 0.  # Mask all other entries except x1
-    test_set_target = test_set_tensor
-    print(f"Train shape: {train_set_tensor.shape} / Test shape: {test_set_tensor.shape}")
+    # Load the dataset
+    train_set_input, train_set_target = process_dataset("train_dataset.csv", device)
+    test_set_input, test_set_target = process_dataset("test_dataset.csv", device)
+    print(f"Train shape: {train_set_input.shape} / Test shape: {test_set_input.shape}")
+    print(f"First example: {train_set_input[0, 0, :]} / Target {train_set_target[0, 0, :]}")
 
     # Create the model
     model = DGCNN_Reg(args).to(device)
@@ -119,6 +102,8 @@ def train(args, io):
     best_test_loss = 10000.
     train_loss_list = []
     test_loss_list = []
+    log_iter = 25
+
     for epoch in range(args.epochs):
         ####################
         # Train
@@ -145,8 +130,6 @@ def train(args, io):
                     param_group['lr'] = 1e-5
 
         train_loss = train_loss * 1.0 / count
-        outstr = 'Train %d, loss: %.6f' % (epoch, train_loss)
-        io.cprint(outstr)
         train_loss_list.append(float(train_loss))
 
         ####################
@@ -163,10 +146,11 @@ def train(args, io):
             test_loss += loss.item() * batch_size
 
         test_loss = test_loss * 1.0 / count
-        outstr = 'Test %d, loss: %.6f' % (epoch, test_loss)
         test_loss_list.append(float(test_loss))
-
-        io.cprint(outstr)
+        outstr = 'Epoch: %d / Train loss: %.6f / Test loss: %.6f' % (epoch, train_loss, test_loss)
+        if epoch % log_iter == 0:
+            io.cprint(outstr)
+        
         if test_loss < best_test_loss:
             best_test_loss = test_loss
             torch.save(model.state_dict(), args.model_output_file)
@@ -202,8 +186,8 @@ def plot_distance(distance, selected_idx, path_prefix):
     # Plot one graph for each node
     for node in range(num_vars):
         node_distance = distance[node, :]
-        connected_nodes = selected_idx[node]
-        selected_vals = [node_distance[i] for i in connected_nodes if i != node]  # Discard self-distance
+        connected_nodes = selected_idx[node, 1:]  # The highest similarity should be with the node itself (discard idx=0)
+        selected_vals = [node_distance[i] for i in connected_nodes]
         assert max(selected_vals) == selected_vals[0]
         assert min(selected_vals) == selected_vals[-1]
         
@@ -241,14 +225,9 @@ def test(args, io):
     device = torch.device("cuda" if args.cuda else "cpu")
     
     # Load test set
-    test_set_df = pd.read_csv("test_dataset.csv")
-    test_set_np = test_set_df.to_numpy()
-
-    test_set_tensor = torch.from_numpy(test_set_np).to(device)[:, None, :].float()  # Add synthetic channel dim
-    test_set_input = test_set_tensor.clone()
-    test_set_input[:, 1:] = 0.  # Mask all other entries except x1
-    test_set_target = test_set_tensor
-    print(f"Test shape: {test_set_tensor.shape}")
+    # Load the dataset
+    test_set_input, test_set_target = process_dataset("test_dataset.csv", device)
+    print(f"Test shape: {test_set_input.shape}")
 
     # Create the model
     model = DGCNN_Reg(args, return_features=True).to(device)
