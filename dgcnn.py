@@ -14,7 +14,7 @@ def knn(x, k, return_dist=False):
 
     idx = pairwise_distance.topk(k=k, dim=-1)[1]   # (batch_size, num_points, k)
     if return_dist:
-        return idx, pairwise_distance
+        return idx, pairwise_distance.detach().cpu()
     return idx
 
 
@@ -30,6 +30,7 @@ def get_graph_feature(x, k=20, idx=None, return_features=False):
         assert isinstance(idx, tuple) or not return_features
         if return_features:
             idx, distances = idx
+            distances = (distances, idx.detach().cpu())
     device = torch.device('cuda')
 
     idx_base = torch.arange(0, batch_size, device=device).view(-1, 1, 1)*num_points
@@ -106,5 +107,5 @@ class DGCNN_Reg(nn.Module):
         x = self.reg_layer(x)                   # (batch_size, emb_dims, num_points) -> (batch_size, 1, num_points)
         
         if self.return_features:
-            return x, (d1, d2, d3, d4)
+            return x, (d1, d2, d3, d4), (x1.detach().cpu(), x2.detach().cpu(), x3.detach().cpu(), x4.detach().cpu())
         return x

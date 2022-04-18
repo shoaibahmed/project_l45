@@ -18,7 +18,10 @@ import sklearn.metrics as metrics
 
 from dgcnn import DGCNN_Reg
 
+import shutil
+import graphviz
 import pandas as pd
+from colour import Color
 import matplotlib.pyplot as plt
 
 
@@ -190,6 +193,39 @@ def train(args, io):
     plt.close('all')
 
 
+def plot_distance(distance, path_prefix):
+    assert len(distance.shape) == 2
+    assert distance.shape[0] == distance.shape[1], f"Distance should be an N x N matrix (found: {distance.shape})"
+    num_vars = distance.shape[0]
+    
+    # Plot one graph for each node
+    for node in range(num_vars):
+        node_distance = distance[node, :]
+        
+        # Normalize the distance using min-max normalization
+        dist_min, dist_max = node_distance.min(), node_distance.max()
+        node_distance = (node_distance - dist_min) / (dist_max - dist_min)
+
+        dot = graphviz.Digraph()
+
+        color = Color(rgb=(1, 1, 1))   ## full 3-tuple RGB specification
+        dot.node(f"x{node+1}", f"x{node+1}", {"shape": "ellipse", "peripheries": "2", "fillcolor": color.hex_l})
+    
+        # Draw the edges
+        for other_node in range(num_vars):
+            if other_node == node:
+                continue
+
+            # Red indicates maximum distance, green represents minimum distance
+            current_node_dist = node_distance[other_node]
+            color = Color(rgb=(current_node_dist, 1-current_node_dist, 0))   ## full 3-tuple RGB specification
+            dot.node(f"x{other_node+1}", f"x{other_node+1}", {"shape": "ellipse", "peripheries": "1", "fillcolor": color.hex_l, "style": "filled"})
+            dot.edge(f"x{other_node+1}", f"x{node+1}", _attributes={"style": "dashed"})
+        
+        # Save the dot figure here
+        dot.render(f'{path_prefix}x{node+1}', format='jpg', cleanup=True)
+
+
 def test(args, io):
     print("Evaluating the pretrained model...")
     device = torch.device("cuda" if args.cuda else "cpu")
@@ -215,7 +251,7 @@ def test(args, io):
     test_loss = 0.0
     for data, label in [(test_set_input, test_set_target)]:
         batch_size = data.size()[0]
-        output, distances = model(data)
+        output, distances, features = model(data)
         loss = criterion(output, label)
         count += batch_size
         test_loss += loss.item() * batch_size
@@ -223,6 +259,22 @@ def test(args, io):
     
     outstr = 'Test loss: %.6f' % (test_loss)
     io.cprint(outstr)
+
+    # Plot the distances for one of the examples
+    (d1, d2, d3, d4), (x1, x2, x3, x4) = distances, features
+    # Distances are a tuple of the actual distance and the selected idx
+    print(f"Distance tensors: {d1[0].shape} / {d2[0].shape} / {d3[0].shape} / {d4[0].shape}")
+    print(f"Feature tensors: {x1.shape} / {x2.shape} / {x3.shape} / {x4.shape}")
+    for i, d in enumerate([d1, d2, d3, d4]):
+        print("Layer #", i)
+        print("Distances:", d[0][0])
+        print("Selected idx:", d[1][0])
+
+        output_prefix = 'outputs/%s/attention_plots/layer_%d/' % (args.exp_name, i)
+        if os.path.exists(output_prefix):
+            shutil.rmtree(output_prefix)
+        os.makedirs(output_prefix)
+        plot_distance(d[0][0, :, :], output_prefix)  # Only plot the first example
 
 
 if __name__ == "__main__":
