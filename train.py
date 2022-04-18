@@ -102,7 +102,7 @@ def train(args, io):
     best_test_loss = 10000.
     train_loss_list = []
     test_loss_list = []
-    log_iter = 25
+    log_iter = 1
 
     for epoch in range(args.epochs):
         ####################
@@ -194,7 +194,10 @@ def plot_distance(distance, selected_idx, path_prefix):
         # Normalize the distance using min-max normalization
         # Distances are usually negative -- selecting top-k from it
         dist_min, dist_max = selected_vals[-1], selected_vals[0]
-        node_distance = (node_distance - dist_min) / (dist_max - dist_min)
+        if dist_min != dist_max:
+            node_distance = (node_distance - dist_min) / (dist_max - dist_min)
+        else:
+            node_distance = node_distance - dist_min
 
         dot = graphviz.Digraph()
 
@@ -249,9 +252,18 @@ def test(args, io):
     outstr = 'Test loss: %.6f' % (test_loss)
     io.cprint(outstr)
 
+    # Compare the predictions on any of the examples
+    idx = np.random.choice(np.arange(len(output)))
+    print("Selected example:", idx)
+    print("Target:", label[idx])
+    print("Prediction:", output[idx])
+
+    plot_distances = False
+    if not plot_distances:
+        return
+
     # Plot the distances for one of the examples
     (d1, d2, d3, d4), (x1, x2, x3, x4) = distances, features
-    # Distances are a tuple of the actual distance and the selected idx
     print(f"Distance tensors: {d1[0].shape} / {d2[0].shape} / {d3[0].shape} / {d4[0].shape}")
     print(f"Feature tensors: {x1.shape} / {x2.shape} / {x3.shape} / {x4.shape}")
     for i, d in enumerate([d1, d2, d3, d4]):
@@ -268,7 +280,7 @@ def test(args, io):
 
 if __name__ == "__main__":
     # Training settings
-    parser = argparse.ArgumentParser(description='Point Cloud Recognition')
+    parser = argparse.ArgumentParser(description='SCM training test')
     parser.add_argument('--exp_name', type=str, default='exp', metavar='N',
                         help='Name of the experiment')
     parser.add_argument('--model', type=str, default='dgcnn', metavar='N',

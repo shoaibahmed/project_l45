@@ -45,7 +45,7 @@ scm = StructuralCausalModel({
     "x10": lambda x7, x8, x9, n_samples: x7 + x8 + x9,
 })
 
-ds = scm.sample(n_samples=100)
+ds = scm.sample(n_samples=1000)
 ds.to_csv("train_dataset.csv", index=False, header=True)
 dot = scm.cgm.draw()
 print(dot)

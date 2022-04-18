@@ -82,24 +82,37 @@ class DGCNN_Reg(nn.Module):
                                    nn.LeakyReLU(negative_slope=0.2))
         
         self.reg_layer = nn.Conv1d(args.emb_dims, output_channels, kernel_size=1, bias=False)
+        self.use_max_reduction = False
 
     def forward(self, x):
         batch_size = x.size(0)
         x, d1 = get_graph_feature(x, k=self.k, return_features=self.return_features)      # (batch_size, 3, num_points) -> (batch_size, 3*2, num_points, k)
         x = self.conv1(x)                       # (batch_size, 3*2, num_points, k) -> (batch_size, 64, num_points, k)
-        x1 = x.max(dim=-1, keepdim=False)[0]    # (batch_size, 64, num_points, k) -> (batch_size, 64, num_points)
+        if self.use_max_reduction:
+            x1 = x.max(dim=-1, keepdim=False)[0]    # (batch_size, 64, num_points, k) -> (batch_size, 64, num_points)
+        else:
+            x1 = x.sum(dim=-1, keepdim=False)       # (batch_size, 64, num_points, k) -> (batch_size, 64, num_points)
 
         x, d2 = get_graph_feature(x1, k=self.k, return_features=self.return_features)     # (batch_size, 64, num_points) -> (batch_size, 64*2, num_points, k)
         x = self.conv2(x)                       # (batch_size, 64*2, num_points, k) -> (batch_size, 64, num_points, k)
-        x2 = x.max(dim=-1, keepdim=False)[0]    # (batch_size, 64, num_points, k) -> (batch_size, 64, num_points)
+        if self.use_max_reduction:
+            x2 = x.max(dim=-1, keepdim=False)[0]    # (batch_size, 64, num_points, k) -> (batch_size, 64, num_points)
+        else:
+            x2 = x.sum(dim=-1, keepdim=False)       # (batch_size, 64, num_points, k) -> (batch_size, 64, num_points)
 
         x, d3 = get_graph_feature(x2, k=self.k, return_features=self.return_features)     # (batch_size, 64, num_points) -> (batch_size, 64*2, num_points, k)
         x = self.conv3(x)                       # (batch_size, 64*2, num_points, k) -> (batch_size, 128, num_points, k)
-        x3 = x.max(dim=-1, keepdim=False)[0]    # (batch_size, 128, num_points, k) -> (batch_size, 128, num_points)
+        if self.use_max_reduction:
+            x3 = x.max(dim=-1, keepdim=False)[0]    # (batch_size, 128, num_points, k) -> (batch_size, 128, num_points)
+        else:
+            x3 = x.sum(dim=-1, keepdim=False)       # (batch_size, 128, num_points, k) -> (batch_size, 64, num_points)
 
         x, d4 = get_graph_feature(x3, k=self.k, return_features=self.return_features)     # (batch_size, 128, num_points) -> (batch_size, 128*2, num_points, k)
         x = self.conv4(x)                       # (batch_size, 128*2, num_points, k) -> (batch_size, 256, num_points, k)
-        x4 = x.max(dim=-1, keepdim=False)[0]    # (batch_size, 256, num_points, k) -> (batch_size, 256, num_points)
+        if self.use_max_reduction:
+            x4 = x.max(dim=-1, keepdim=False)[0]    # (batch_size, 256, num_points, k) -> (batch_size, 256, num_points)
+        else:
+            x4 = x.sum(dim=-1, keepdim=False)       # (batch_size, 256, num_points, k) -> (batch_size, 64, num_points)
 
         x = torch.cat((x1, x2, x3, x4), dim=1)  # (batch_size, 64+64+128+256, num_points)
 
