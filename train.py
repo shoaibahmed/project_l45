@@ -193,30 +193,40 @@ def train(args, io):
     plt.close('all')
 
 
-def plot_distance(distance, path_prefix):
+def plot_distance(distance, selected_idx, path_prefix):
     assert len(distance.shape) == 2
     assert distance.shape[0] == distance.shape[1], f"Distance should be an N x N matrix (found: {distance.shape})"
     num_vars = distance.shape[0]
+    assert selected_idx.shape == (num_vars, 4), f"{selected_idx.shape} != ({num_vars}, 4)"
     
     # Plot one graph for each node
     for node in range(num_vars):
         node_distance = distance[node, :]
+        connected_nodes = selected_idx[node]
+        selected_vals = [node_distance[i] for i in connected_nodes if i != node]  # Discard self-distance
+        assert max(selected_vals) == selected_vals[0]
+        assert min(selected_vals) == selected_vals[-1]
         
         # Normalize the distance using min-max normalization
-        dist_min, dist_max = node_distance.min(), node_distance.max()
+        # Distances are usually negative -- selecting top-k from it
+        dist_min, dist_max = selected_vals[-1], selected_vals[0]
         node_distance = (node_distance - dist_min) / (dist_max - dist_min)
 
         dot = graphviz.Digraph()
 
         color = Color(rgb=(1, 1, 1))   ## full 3-tuple RGB specification
-        dot.node(f"x{node+1}", f"x{node+1}", {"shape": "ellipse", "peripheries": "2", "fillcolor": color.hex_l})
+        dot.node(f"x{node+1}", f"x{node+1}", {"shape": "ellipse", "peripheries": "1", "fillcolor": color.hex_l})
     
         # Draw the edges
         for other_node in range(num_vars):
             if other_node == node:
                 continue
 
-            # Red indicates maximum distance, green represents minimum distance
+            if other_node not in connected_nodes:
+                dot.node(f"x{other_node+1}", f"x{other_node+1}", {"shape": "ellipse", "peripheries": "1"})
+                continue
+            
+            # Red indicates maximum distance i.e. top-k, green represents minimum distance
             current_node_dist = node_distance[other_node]
             color = Color(rgb=(current_node_dist, 1-current_node_dist, 0))   ## full 3-tuple RGB specification
             dot.node(f"x{other_node+1}", f"x{other_node+1}", {"shape": "ellipse", "peripheries": "1", "fillcolor": color.hex_l, "style": "filled"})
@@ -274,7 +284,7 @@ def test(args, io):
         if os.path.exists(output_prefix):
             shutil.rmtree(output_prefix)
         os.makedirs(output_prefix)
-        plot_distance(d[0][0, :, :], output_prefix)  # Only plot the first example
+        plot_distance(d[0][0, :, :], d[1][0, :, :], output_prefix)  # Only plot the first example
 
 
 if __name__ == "__main__":
