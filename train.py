@@ -102,7 +102,8 @@ def train(args, io):
     best_test_loss = 10000.
     train_loss_list = []
     test_loss_list = []
-    log_iter = 1
+    log_iter = 25
+    batch_size = None
 
     for epoch in range(args.epochs):
         ####################
@@ -112,6 +113,13 @@ def train(args, io):
         count = 0.0
         model.train()
         for data, label in [(train_set_input, train_set_target)]:
+            if batch_size is not None:
+                # Select a random batch of data
+                assert isinstance(batch_size, int)
+                selected_idx = np.random.choice(np.arange(len(data)), size=batch_size, replace=False)
+                data = torch.stack([data[i] for i in selected_idx], dim=0)
+                label = torch.stack([label[i] for i in selected_idx], dim=0)
+
             batch_size = data.size()[0]
             opt.zero_grad()
             output = model(data)
@@ -292,7 +300,7 @@ if __name__ == "__main__":
                         help='Size of batch)')
     parser.add_argument('--test_batch_size', type=int, default=16, metavar='batch_size',
                         help='Size of batch)')
-    parser.add_argument('--epochs', type=int, default=250, metavar='N',
+    parser.add_argument('--epochs', type=int, default=1000, metavar='N',
                         help='number of episode to train ')
     parser.add_argument('--use_sgd', type=bool, default=False,
                         help='Use SGD')
