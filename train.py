@@ -18,28 +18,11 @@ import sklearn.metrics as metrics
 
 from dgcnn import DGCNN_Reg
 
+import shutil
+import graphviz
 import pandas as pd
+from colour import Color
 import matplotlib.pyplot as plt
-
-
-def cal_loss(pred, gold, smoothing=True):
-    ''' Calculate cross entropy loss, apply label smoothing if needed. '''
-
-    gold = gold.contiguous().view(-1)
-
-    if smoothing:
-        eps = 0.2
-        n_class = pred.size(1)
-
-        one_hot = torch.zeros_like(pred).scatter(1, gold.view(-1, 1), 1)
-        one_hot = one_hot * (1 - eps) + (1 - one_hot) * eps / (n_class - 1)
-        log_prb = F.log_softmax(pred, dim=1)
-
-        loss = -(one_hot * log_prb).sum(dim=1).mean()
-    else:
-        loss = F.cross_entropy(pred, gold, reduction='mean')
-
-    return loss
 
 
 class IOStream():
@@ -67,39 +50,59 @@ def _init_():
     os.system('cp generate_data_scm.py outputs' + '/' + args.exp_name + '/' + 'generate_data_scm.py.backup')
 
 
-def train(args, io):
-    device = torch.device("cuda" if args.cuda else "cpu")
-
-    # Load train set
-    train_set_df = pd.read_csv("train_dataset.csv")
-    train_set_np = train_set_df.to_numpy()
-
-    # Load test set
-    test_set_df = pd.read_csv("test_dataset.csv")
-    test_set_np = test_set_df.to_numpy()
+def process_dataset(file_name, device, inject_positional_features=False):
+    dataset = pd.read_csv(file_name)
+    dataset_np = dataset.to_numpy()
 
     # Convert the train and test set to tensors
-    train_set_tensor = torch.from_numpy(train_set_np).to(device)[:, None, :].float()  # Add synthetic channel dim
-    train_set_input = train_set_tensor.clone()
-    train_set_input[:, 1:] = 0.  # Mask all other entries except x1
-    train_set_target = train_set_tensor
+    dataset_tensor = torch.from_numpy(dataset_np).to(device)[:, None, :].float()  # Add synthetic channel dim
+    dataset_input = dataset_tensor.clone()
+    observed_vars = ["x1", "x2", "x4", "x6", "x8", "x9"]
+    keep_cols = [int(x.replace("x", "")) - 1 for x in observed_vars]
+    print("Keeping the following columns:", keep_cols)
+    num_examples = dataset_input.shape[0]
+    num_nodes = dataset_input.shape[2]
+    for i in range(num_nodes):
+        if i not in keep_cols:
+            dataset_input[:, 0, i] = 0.  # Mask all the entries in that column
+    if inject_positional_features:
+        positional_features = torch.arange(num_nodes)
+        positional_features = positional_features.repeat(num_examples, 1, 1).to(device)
+        dataset_input = torch.cat([dataset_input, positional_features], dim=1)
+        print("Dataset input size after positional information:", dataset_input.shape)
+    dataset_target = dataset_tensor
+    return dataset_input, dataset_target
 
-    test_set_tensor = torch.from_numpy(test_set_np).to(device)[:, None, :].float()  # Add synthetic channel dim
-    test_set_input = test_set_tensor.clone()
-    test_set_input[:, 1:] = 0.  # Mask all other entries except x1
-    test_set_target = test_set_tensor
-    print(f"Train shape: {train_set_tensor.shape} / Test shape: {test_set_tensor.shape}")
+
+def train(args, io):
+    if os.path.exists(args.model_output_file):
+        print("Output file already exists:", args.model_output_file)
+        print("Returning without executing the training process...")
+        return
+    
+    device = torch.device("cuda" if args.cuda else "cpu")
+
+    # Load the dataset
+    train_set_input, train_set_target = process_dataset("train_dataset.csv", device, args.inject_positional_features)
+    test_set_input, test_set_target = process_dataset("test_dataset.csv", device, args.inject_positional_features)
+    print(f"Train shape: {train_set_input.shape} / Test shape: {test_set_input.shape}")
+    print(f"First example: {train_set_input[0, 0, :]} / Target {train_set_target[0, 0, :]}")
 
     # Create the model
-    model = DGCNN_Reg(args).to(device)
+    input_features = train_set_input.shape[1]  # Number of features
+    if args.k is None:
+        args.k = train_set_input.shape[2]  # Number of nodes
+    print("Setting k in latent graph inference to be:", args.k)
+    model = DGCNN_Reg(args, input_features=input_features).to(device)
     # print(str(model))
 
+    weight_decay = 1e-4
     if args.use_sgd:
         print("Use SGD")
-        opt = optim.SGD(model.parameters(), lr=args.lr, momentum=args.momentum, weight_decay=1e-4)
+        opt = optim.SGD(model.parameters(), lr=args.lr, momentum=args.momentum, weight_decay=weight_decay)
     else:
         print("Use Adam")
-        opt = optim.Adam(model.parameters(), lr=args.lr, weight_decay=1e-4)
+        opt = optim.Adam(model.parameters(), lr=args.lr, weight_decay=weight_decay)
 
     if args.scheduler == 'cos':
         scheduler = CosineAnnealingLR(opt, args.epochs, eta_min=1e-3)
@@ -111,6 +114,9 @@ def train(args, io):
     best_test_loss = 10000.
     train_loss_list = []
     test_loss_list = []
+    log_iter = 25
+    batch_size = None
+
     for epoch in range(args.epochs):
         ####################
         # Train
@@ -119,6 +125,13 @@ def train(args, io):
         count = 0.0
         model.train()
         for data, label in [(train_set_input, train_set_target)]:
+            if batch_size is not None:
+                # Select a random batch of data
+                assert isinstance(batch_size, int)
+                selected_idx = np.random.choice(np.arange(len(data)), size=batch_size, replace=False)
+                data = torch.stack([data[i] for i in selected_idx], dim=0)
+                label = torch.stack([label[i] for i in selected_idx], dim=0)
+
             batch_size = data.size()[0]
             opt.zero_grad()
             output = model(data)
@@ -127,6 +140,7 @@ def train(args, io):
             opt.step()
             count += batch_size
             train_loss += loss.item() * batch_size
+        
         if args.scheduler == 'cos':
             scheduler.step()
         elif args.scheduler == 'step':
@@ -137,8 +151,6 @@ def train(args, io):
                     param_group['lr'] = 1e-5
 
         train_loss = train_loss * 1.0 / count
-        outstr = 'Train %d, loss: %.6f' % (epoch, train_loss)
-        io.cprint(outstr)
         train_loss_list.append(float(train_loss))
 
         ####################
@@ -155,13 +167,14 @@ def train(args, io):
             test_loss += loss.item() * batch_size
 
         test_loss = test_loss * 1.0 / count
-        outstr = 'Test %d, loss: %.6f' % (epoch, test_loss)
         test_loss_list.append(float(test_loss))
-
-        io.cprint(outstr)
+        outstr = 'Epoch: %d / Train loss: %.6f / Test loss: %.6f' % (epoch, train_loss, test_loss)
+        if epoch % log_iter == 0:
+            io.cprint(outstr)
+        
         if test_loss < best_test_loss:
             best_test_loss = test_loss
-            torch.save(model.state_dict(), 'outputs/%s/models/model.pth' % args.exp_name)
+            torch.save(model.state_dict(), args.model_output_file)
     
     assert len(train_loss_list) == args.epochs
     assert len(test_loss_list) == args.epochs
@@ -185,48 +198,114 @@ def train(args, io):
     plt.close('all')
 
 
+def plot_distance(distance, selected_idx, path_prefix, k):
+    assert len(distance.shape) == 2
+    assert distance.shape[0] == distance.shape[1], f"Distance should be an N x N matrix (found: {distance.shape})"
+    num_vars = distance.shape[0]
+    assert selected_idx.shape == (num_vars, k), f"{selected_idx.shape} != ({num_vars}, 4)"
+    
+    # Plot one graph for each node
+    for node in range(num_vars):
+        node_distance = distance[node, :]
+        connected_nodes = selected_idx[node, 1:]  # The highest similarity should be with the node itself (discard idx=0)
+        selected_vals = [node_distance[i] for i in connected_nodes]
+        assert max(selected_vals) == selected_vals[0]
+        assert min(selected_vals) == selected_vals[-1]
+        
+        # Normalize the distance using min-max normalization
+        # Distances are usually negative -- selecting top-k from it
+        dist_min, dist_max = selected_vals[-1], selected_vals[0]
+        if dist_min != dist_max:
+            node_distance = (node_distance - dist_min) / (dist_max - dist_min)
+        else:
+            node_distance = node_distance - dist_min
+
+        dot = graphviz.Digraph()
+
+        color = Color(rgb=(1, 1, 1))   ## full 3-tuple RGB specification
+        dot.node(f"x{node+1}", f"x{node+1}", {"shape": "ellipse", "peripheries": "1", "fillcolor": color.hex_l})
+    
+        # Draw the edges
+        for other_node in range(num_vars):
+            if other_node == node:
+                continue
+
+            if other_node not in connected_nodes:
+                dot.node(f"x{other_node+1}", f"x{other_node+1}", {"shape": "ellipse", "peripheries": "1"})
+                continue
+            
+            # Red indicates maximum distance i.e. top-k, green represents minimum distance
+            current_node_dist = node_distance[other_node]
+            color = Color(rgb=(current_node_dist, 1-current_node_dist, 0))   ## full 3-tuple RGB specification
+            dot.node(f"x{other_node+1}", f"x{other_node+1}", {"shape": "ellipse", "peripheries": "1", "fillcolor": color.hex_l, "style": "filled"})
+            dot.edge(f"x{other_node+1}", f"x{node+1}", _attributes={"style": "dashed"})
+        
+        # Save the dot figure here
+        dot.render(f'{path_prefix}x{node+1}', format='jpg', cleanup=True)
+
+
 def test(args, io):
-    raise NotImplementedError
-    test_loader = DataLoader(ModelNet40(partition='test', num_points=args.num_points),
-                             batch_size=args.test_batch_size, shuffle=True, drop_last=False)
-
+    print("Evaluating the pretrained model...")
     device = torch.device("cuda" if args.cuda else "cpu")
+    
+    # Load test set
+    test_set_input, test_set_target = process_dataset("test_dataset.csv", device, args.inject_positional_features)
+    print(f"Test shape: {test_set_input.shape}")
 
-    #Try to load models
-    if args.model == 'pointnet':
-        model = PointNet(args).to(device)
-    elif args.model == 'dgcnn':
-        model = DGCNN_cls(args).to(device)
-    else:
-        raise Exception("Not implemented")
-
-    model = nn.DataParallel(model)
-    model.load_state_dict(torch.load(args.model_path))
+    # Create the model
+    input_features = test_set_input.shape[1]  # Number of features
+    if args.k is None:
+        args.k = test_set_input.shape[2]  # Number of nodes
+    print("Setting k in latent graph inference to be:", args.k)
+    model = DGCNN_Reg(args, input_features=input_features, return_features=True).to(device)
+    model.load_state_dict(torch.load(args.model_output_file))  # Load the checkpoint
     model = model.eval()
-    test_acc = 0.0
-    count = 0.0
-    test_true = []
-    test_pred = []
-    for data, label in test_loader:
 
-        data, label = data.to(device), label.to(device).squeeze()
-        data = data.permute(0, 2, 1)
+    criterion = nn.MSELoss()
+    
+    count = 0
+    test_loss = 0.0
+    for data, label in [(test_set_input, test_set_target)]:
         batch_size = data.size()[0]
-        logits = model(data)
-        preds = logits.max(dim=1)[1]
-        test_true.append(label.cpu().numpy())
-        test_pred.append(preds.detach().cpu().numpy())
-    test_true = np.concatenate(test_true)
-    test_pred = np.concatenate(test_pred)
-    test_acc = metrics.accuracy_score(test_true, test_pred)
-    avg_per_class_acc = metrics.balanced_accuracy_score(test_true, test_pred)
-    outstr = 'Test :: test acc: %.6f, test avg acc: %.6f'%(test_acc, avg_per_class_acc)
+        output, distances, features = model(data)
+        loss = criterion(output, label)
+        count += batch_size
+        test_loss += loss.item() * batch_size
+    test_loss = test_loss * 1.0 / count
+    
+    outstr = 'Test loss: %.6f' % (test_loss)
     io.cprint(outstr)
+
+    # Compare the predictions on any of the examples
+    idx = np.random.choice(np.arange(len(output)))
+    print("Selected example:", idx)
+    print("Input:", data[idx])
+    print("Target:", label[idx])
+    print("Prediction:", output[idx])
+
+    plot_distances = True
+    if not plot_distances:
+        return
+
+    # Plot the distances for one of the examples
+    (d1, d2, d3, d4), (x1, x2, x3, x4) = distances, features
+    print(f"Distance tensors: {d1[0].shape} / {d2[0].shape} / {d3[0].shape} / {d4[0].shape}")
+    print(f"Feature tensors: {x1.shape} / {x2.shape} / {x3.shape} / {x4.shape}")
+    for i, d in enumerate([d1, d2, d3, d4]):
+        print("Layer #", i)
+        print("Distances:", d[0][0])
+        print("Selected idx:", d[1][0])
+
+        output_prefix = 'outputs/%s/attention_plots/layer_%d/' % (args.exp_name, i)
+        if os.path.exists(output_prefix):
+            shutil.rmtree(output_prefix)
+        os.makedirs(output_prefix)
+        plot_distance(d[0][0, :, :], d[1][0, :, :], output_prefix, args.k)  # Only plot the first example
 
 
 if __name__ == "__main__":
     # Training settings
-    parser = argparse.ArgumentParser(description='Point Cloud Recognition')
+    parser = argparse.ArgumentParser(description='SCM training test')
     parser.add_argument('--exp_name', type=str, default='exp', metavar='N',
                         help='Name of the experiment')
     parser.add_argument('--model', type=str, default='dgcnn', metavar='N',
@@ -263,15 +342,18 @@ if __name__ == "__main__":
                         help='Dimension of embeddings')
     parser.add_argument('--k', type=int, default=4, metavar='N',
                         help='Num of nearest neighbors to use')
-    parser.add_argument('--model_path', type=str, default='', metavar='N',
-                        help='Pretrained model path')
     args = parser.parse_args()
 
+    args.inject_positional_features = True
+    args.exp_name = f"{args.exp_name}{('_k_' + str(args.k)) if args.k is not None else '_fc'}{'_pos' if args.inject_positional_features else ''}"
+    
+    # Create the required directories
     _init_()
 
     io = IOStream('outputs/' + args.exp_name + '/run.log')
     io.cprint(str(args))
-
+    args.model_output_file = 'outputs/%s/models/model.pth' % args.exp_name
+    
     args.cuda = not args.no_cuda and torch.cuda.is_available()
     torch.manual_seed(args.seed)
     if args.cuda:
