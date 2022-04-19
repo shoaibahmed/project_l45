@@ -50,7 +50,7 @@ def _init_():
     os.system('cp generate_data_scm.py outputs' + '/' + args.exp_name + '/' + 'generate_data_scm.py.backup')
 
 
-def process_dataset(file_name, device):
+def process_dataset(file_name, device, inject_positional_features=False):
     dataset = pd.read_csv(file_name)
     dataset_np = dataset.to_numpy()
 
@@ -60,9 +60,16 @@ def process_dataset(file_name, device):
     observed_vars = ["x1", "x2", "x4", "x6", "x8", "x9"]
     keep_cols = [int(x.replace("x", "")) - 1 for x in observed_vars]
     print("Keeping the following columns:", keep_cols)
-    for i in range(dataset_input.shape[2]):
+    num_examples = dataset_input.shape[0]
+    num_nodes = dataset_input.shape[2]
+    for i in range(num_nodes):
         if i not in keep_cols:
             dataset_input[:, 0, i] = 0.  # Mask all the entries in that column
+    if inject_positional_features:
+        positional_features = torch.arange(num_nodes)
+        positional_features = positional_features.repeat(num_examples, 1, 1).to(device)
+        dataset_input = torch.cat([dataset_input, positional_features], dim=1)
+        print("Dataset input size after positional information:", dataset_input.shape)
     dataset_target = dataset_tensor
     return dataset_input, dataset_target
 
@@ -76,21 +83,26 @@ def train(args, io):
     device = torch.device("cuda" if args.cuda else "cpu")
 
     # Load the dataset
-    train_set_input, train_set_target = process_dataset("train_dataset.csv", device)
-    test_set_input, test_set_target = process_dataset("test_dataset.csv", device)
+    train_set_input, train_set_target = process_dataset("train_dataset.csv", device, args.inject_positional_features)
+    test_set_input, test_set_target = process_dataset("test_dataset.csv", device, args.inject_positional_features)
     print(f"Train shape: {train_set_input.shape} / Test shape: {test_set_input.shape}")
     print(f"First example: {train_set_input[0, 0, :]} / Target {train_set_target[0, 0, :]}")
 
     # Create the model
-    model = DGCNN_Reg(args).to(device)
+    input_features = train_set_input.shape[1]  # Number of features
+    if args.k is None:
+        args.k = train_set_input.shape[2]  # Number of nodes
+    print("Setting k in latent graph inference to be:", args.k)
+    model = DGCNN_Reg(args, input_features=input_features).to(device)
     # print(str(model))
 
+    weight_decay = 1e-4
     if args.use_sgd:
         print("Use SGD")
-        opt = optim.SGD(model.parameters(), lr=args.lr, momentum=args.momentum, weight_decay=1e-4)
+        opt = optim.SGD(model.parameters(), lr=args.lr, momentum=args.momentum, weight_decay=weight_decay)
     else:
         print("Use Adam")
-        opt = optim.Adam(model.parameters(), lr=args.lr, weight_decay=1e-4)
+        opt = optim.Adam(model.parameters(), lr=args.lr, weight_decay=weight_decay)
 
     if args.scheduler == 'cos':
         scheduler = CosineAnnealingLR(opt, args.epochs, eta_min=1e-3)
@@ -128,6 +140,7 @@ def train(args, io):
             opt.step()
             count += batch_size
             train_loss += loss.item() * batch_size
+        
         if args.scheduler == 'cos':
             scheduler.step()
         elif args.scheduler == 'step':
@@ -185,11 +198,11 @@ def train(args, io):
     plt.close('all')
 
 
-def plot_distance(distance, selected_idx, path_prefix):
+def plot_distance(distance, selected_idx, path_prefix, k):
     assert len(distance.shape) == 2
     assert distance.shape[0] == distance.shape[1], f"Distance should be an N x N matrix (found: {distance.shape})"
     num_vars = distance.shape[0]
-    assert selected_idx.shape == (num_vars, 4), f"{selected_idx.shape} != ({num_vars}, 4)"
+    assert selected_idx.shape == (num_vars, k), f"{selected_idx.shape} != ({num_vars}, 4)"
     
     # Plot one graph for each node
     for node in range(num_vars):
@@ -236,12 +249,15 @@ def test(args, io):
     device = torch.device("cuda" if args.cuda else "cpu")
     
     # Load test set
-    # Load the dataset
-    test_set_input, test_set_target = process_dataset("test_dataset.csv", device)
+    test_set_input, test_set_target = process_dataset("test_dataset.csv", device, args.inject_positional_features)
     print(f"Test shape: {test_set_input.shape}")
 
     # Create the model
-    model = DGCNN_Reg(args, return_features=True).to(device)
+    input_features = test_set_input.shape[1]  # Number of features
+    if args.k is None:
+        args.k = test_set_input.shape[2]  # Number of nodes
+    print("Setting k in latent graph inference to be:", args.k)
+    model = DGCNN_Reg(args, input_features=input_features, return_features=True).to(device)
     model.load_state_dict(torch.load(args.model_output_file))  # Load the checkpoint
     model = model.eval()
 
@@ -263,10 +279,11 @@ def test(args, io):
     # Compare the predictions on any of the examples
     idx = np.random.choice(np.arange(len(output)))
     print("Selected example:", idx)
+    print("Input:", data[idx])
     print("Target:", label[idx])
     print("Prediction:", output[idx])
 
-    plot_distances = False
+    plot_distances = True
     if not plot_distances:
         return
 
@@ -283,7 +300,7 @@ def test(args, io):
         if os.path.exists(output_prefix):
             shutil.rmtree(output_prefix)
         os.makedirs(output_prefix)
-        plot_distance(d[0][0, :, :], d[1][0, :, :], output_prefix)  # Only plot the first example
+        plot_distance(d[0][0, :, :], d[1][0, :, :], output_prefix, args.k)  # Only plot the first example
 
 
 if __name__ == "__main__":
@@ -300,7 +317,7 @@ if __name__ == "__main__":
                         help='Size of batch)')
     parser.add_argument('--test_batch_size', type=int, default=16, metavar='batch_size',
                         help='Size of batch)')
-    parser.add_argument('--epochs', type=int, default=1000, metavar='N',
+    parser.add_argument('--epochs', type=int, default=250, metavar='N',
                         help='number of episode to train ')
     parser.add_argument('--use_sgd', type=bool, default=False,
                         help='Use SGD')
@@ -327,12 +344,16 @@ if __name__ == "__main__":
                         help='Num of nearest neighbors to use')
     args = parser.parse_args()
 
+    args.inject_positional_features = True
+    args.exp_name = f"{args.exp_name}{('_k_' + str(args.k)) if args.k is not None else '_fc'}{'_pos' if args.inject_positional_features else ''}"
+    
+    # Create the required directories
     _init_()
 
     io = IOStream('outputs/' + args.exp_name + '/run.log')
     io.cprint(str(args))
     args.model_output_file = 'outputs/%s/models/model.pth' % args.exp_name
-
+    
     args.cuda = not args.no_cuda and torch.cuda.is_available()
     torch.manual_seed(args.seed)
     if args.cuda:
