@@ -29,19 +29,34 @@ from causalgraphicalmodels import StructuralCausalModel
 class SCM:
     def __init__(self):
         # Define the SCM
+        # self.scm_dict = {
+        #     "x1": lambda     n_samples: np.random.normal(loc=1, scale=0.1, size=n_samples),
+        #     "x2": lambda     n_samples: np.random.normal(loc=0, scale=0.2, size=n_samples),
+        #     "x3": lambda x1, x2, n_samples: (0.5 * x1) + x2,
+        #     "x4": lambda     n_samples: np.random.normal(loc=-1, scale=0.1, size=n_samples),
+        #     "x5": lambda x3, x4, n_samples: x3 + x4,
+        #     "x6": lambda     n_samples: np.random.normal(loc=0, scale=0.5, size=n_samples),
+        #     "x7": lambda x5, x6, n_samples: x5 + x6,
+        #     "x8": lambda     n_samples: np.random.normal(loc=-1, scale=0.2, size=n_samples),
+        #     "x9": lambda     n_samples: np.random.normal(loc=1, scale=0.2, size=n_samples),
+        #     "x10": lambda x7, x8, x9, n_samples: x7 + x8 + x9,
+        # }
+        
         self.scm_dict = {
-            "x1": lambda     n_samples: np.random.normal(loc=1, scale=0.1, size=n_samples),
-            "x2": lambda     n_samples: np.random.normal(loc=0, scale=0.2, size=n_samples),
+            "x1": None,
+            "x2": None,
             "x3": lambda x1, x2, n_samples: (0.5 * x1) + x2,
-            "x4": lambda     n_samples: np.random.normal(loc=-1, scale=0.1, size=n_samples),
+            "x4": None,
             "x5": lambda x3, x4, n_samples: x3 + x4,
-            "x6": lambda     n_samples: np.random.normal(loc=0, scale=0.5, size=n_samples),
+            "x6": None,
             "x7": lambda x5, x6, n_samples: x5 + x6,
-            "x8": lambda     n_samples: np.random.normal(loc=-1, scale=0.2, size=n_samples),
-            "x9": lambda     n_samples: np.random.normal(loc=1, scale=0.2, size=n_samples),
+            "x8": None,
+            "x9": None,
             "x10": lambda x7, x8, x9, n_samples: x7 + x8 + x9,
         }
+        
         self.scm = StructuralCausalModel(self.scm_dict)
+        self.plot_scm()
 
         self.nodes = natsort.natsorted(self.scm.cgm.dag.nodes())
         print("Nodes:", self.nodes)
@@ -52,6 +67,18 @@ class SCM:
 
         self.computed_nodes = [x for x in self.nodes if x not in self.observed_nodes]
         print("Computed nodes:", self.computed_nodes)
+        
+        # Define the generator dict that can be used to sample values
+        self.generator_dict = {
+            "x1": lambda num_samples: np.random.normal(loc=1, scale=0.1, size=num_samples),
+            "x2": lambda num_samples: np.random.normal(loc=0, scale=0.2, size=num_samples),
+            "x4": lambda num_samples: np.random.normal(loc=-1, scale=0.1, size=num_samples),
+            "x6": lambda num_samples: np.random.normal(loc=0, scale=0.5, size=num_samples),
+            "x8": lambda num_samples: np.random.normal(loc=-1, scale=0.2, size=num_samples),
+            "x9": lambda num_samples: np.random.normal(loc=1, scale=0.2, size=num_samples)
+        }
+        assert all([x in self.observed_nodes for x in list(self.generator_dict.keys())])
+        assert all([x not in self.computed_nodes for x in list(self.generator_dict.keys())])
     
     def plot_scm(self, output_file='out'):
         dot = self.scm.cgm.draw()
@@ -68,7 +95,9 @@ class SCM:
         return self.computed_nodes
 
     def get_samples(self, num_samples):
-        return self.scm.sample(n_samples=num_samples)
+        # Set values for all the observed nodes
+        set_dict = {k: self.generator_dict[k](num_samples) for k in self.observed_nodes}
+        return self.scm.sample(n_samples=num_samples, set_values=set_dict)
     
     def get_all_parent_observed_nodes(self, node):
         # Simply assume that all dependencies are sequential i.e. the variable names are sorted
@@ -82,7 +111,7 @@ class SCM:
         # Simply assume that all dependencies are sequential i.e. the variable names are sorted
         assert node in self.nodes
         preceding_nodes = [x for x in self.computed_nodes if int(x.replace("x", "")) < int(node.replace("x", ""))]
-        unaffected_nodes = self.observed_nodes + preceding_nodes
+        unaffected_nodes = [x for x in self.observed_nodes if x != node] + preceding_nodes
         return unaffected_nodes
     
     def intervention_at_x(self, node, num_samples):
@@ -101,8 +130,9 @@ class SCM:
         print(f"Unaffected nodes for {node}: {unaffected_nodes}")
 
         # Set values for all the parent nodes
-        set_dict = {k: float(sample[k]) for k in unaffected_nodes}
-        print("Using fixed values for unaffected_nodes nodes:", set_dict)
+        set_dict = {k: [float(sample[k]) for _ in range(num_samples)] for k in unaffected_nodes}
+        set_dict[node] = self.generator_dict[node](num_samples)
+        print("Using fixed values for unaffected nodes:", set_dict)
 
         return self.scm.sample(n_samples=num_samples, set_values=set_dict)
 
