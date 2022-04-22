@@ -56,7 +56,7 @@ class SCM:
         }
         
         self.scm = StructuralCausalModel(self.scm_dict)
-        self.plot_scm()
+        # self.plot_scm()
 
         self.nodes = natsort.natsorted(self.scm.cgm.dag.nodes())
         print("Nodes:", self.nodes)
@@ -229,7 +229,8 @@ def train(args, io):
     train_loss_list = []
     test_loss_list = []
     log_iter = 25
-    training_batch_size = None
+    if args.batch_size is not None:
+        print("Using random sampling in the dataset with a batch size of:", args.batch_size)
 
     for epoch in range(args.epochs):
         ####################
@@ -239,10 +240,10 @@ def train(args, io):
         count = 0.0
         model.train()
         for data, label in [(train_set_input, train_set_target)]:
-            if training_batch_size is not None:
+            if args.batch_size is not None:
                 # Select a random batch of data
-                assert isinstance(training_batch_size, int)
-                selected_idx = np.random.choice(np.arange(len(data)), size=min(training_batch_size, len(data)), replace=False)
+                assert isinstance(args.batch_size, int)
+                selected_idx = np.random.choice(np.arange(len(data)), size=min(args.batch_size, len(data)), replace=False)
                 data = torch.stack([data[i] for i in selected_idx], dim=0)
                 label = torch.stack([label[i] for i in selected_idx], dim=0)
 
@@ -308,8 +309,19 @@ def train(args, io):
     output_file = 'outputs/%s/models/training_dynamics.png' % args.exp_name
     if output_file is not None:
         plt.savefig(output_file, dpi=300)
-    plt.show()
-    plt.close('all')
+    else:
+        plt.show()
+    
+    # Write the list in a csv file to be read in later
+    epoch_list = list(range(1, len(train_loss_list)+1))
+    assert len(epoch_list) == len(train_loss_list) == len(test_loss_list)
+    df = pd.DataFrame()
+    df["epochs"] = epoch_list
+    df["train_loss"] = train_loss_list
+    df["test_loss"] = test_loss_list
+    
+    output_file = 'outputs/%s/models/training_dynamics.csv' % args.exp_name
+    df.to_csv(output_file)
 
 
 def plot_distance(distance, selected_idx, path_prefix, k):
@@ -365,6 +377,8 @@ def test(args, io):
     # Load test set
     test_set_input, test_set_target = get_data(args.num_test_examples, device, args.inject_positional_features)
     print(f"Test shape: {test_set_input.shape}")
+    
+    # TODO: Also include an intervention test here
 
     # Create the model
     input_features = test_set_input.shape[1]  # Number of features
@@ -422,14 +436,11 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='SCM training test')
     parser.add_argument('--exp_name', type=str, default='exp', metavar='N',
                         help='Name of the experiment')
-    parser.add_argument('--model', type=str, default='dgcnn', metavar='N',
-                        choices=['pointnet', 'dgcnn'],
-                        help='Model to use, [pointnet, dgcnn]')
-    parser.add_argument('--dataset', type=str, default='modelnet40', metavar='N',
-                        choices=['modelnet40'])
-    parser.add_argument('--batch_size', type=int, default=32, metavar='batch_size',
-                        help='Size of batch)')
-    parser.add_argument('--test_batch_size', type=int, default=16, metavar='batch_size',
+    parser.add_argument('--num-training-examples', type=int, default=100, metavar='N',
+                        help='Num of training examples to use')
+    parser.add_argument('--num-test-examples', type=int, default=1000, metavar='N',
+                        help='Num of test examples to use')
+    parser.add_argument('--batch_size', type=int, default=None, metavar='batch_size',
                         help='Size of batch)')
     parser.add_argument('--epochs', type=int, default=250, metavar='N',
                         help='number of episode to train ')
@@ -448,24 +459,17 @@ if __name__ == "__main__":
                         help='random seed (default: 1)')
     parser.add_argument('--eval', type=bool,  default=False,
                         help='evaluate the model')
-    parser.add_argument('--num_points', type=int, default=1024,
-                        help='num of points to use')
     parser.add_argument('--dropout', type=float, default=0.5,
                         help='initial dropout rate')
     parser.add_argument('--emb_dims', type=int, default=1024, metavar='N',
                         help='Dimension of embeddings')
-    
     parser.add_argument('--k', type=int, default=4, metavar='N',
                         help='Num of nearest neighbors to use')
-    parser.add_argument('--num-training-examples', type=int, default=100, metavar='N',
-                        help='Num of training examples to use')
-    parser.add_argument('--num-test-examples', type=int, default=1000, metavar='N',
-                        help='Num of test examples to use')
     
     args = parser.parse_args()
 
     args.inject_positional_features = True
-    args.exp_name = f"{args.exp_name}{('_k_' + str(args.k)) if args.k is not None else '_fc'}{'_pos' if args.inject_positional_features else ''}"
+    args.exp_name = f"{args.exp_name}_train_ex_{args.num_training_examples}_{('_k_' + str(args.k)) if args.k is not None else '_fc'}{'_pos' if args.inject_positional_features else ''}"
     
     # Create the required directories
     _init_()
