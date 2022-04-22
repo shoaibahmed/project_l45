@@ -132,7 +132,7 @@ class SCM:
         # Set values for all the parent nodes
         set_dict = {k: [float(sample[k]) for _ in range(num_samples)] for k in unaffected_nodes}
         set_dict[node] = self.generator_dict[node](num_samples)
-        print("Using fixed values for unaffected nodes:", set_dict)
+        print("Using fixed values for unaffected nodes:", {k: v[0] for k, v in set_dict.items()})
 
         return self.scm.sample(n_samples=num_samples, set_values=set_dict)
 
@@ -161,10 +161,14 @@ def _init_():
     os.system('cp train.py outputs' + '/' + args.exp_name + '/' + 'train.py.backup')
 
 
-def get_data(num_examples, device, inject_positional_features=False):
+def get_data(num_examples, device, inject_positional_features=False, intervention_node=None):
     # dataset = pd.read_csv(file_name)
-    scm = SCM()
-    dataset = scm.get_samples(num_samples=num_examples)
+    if intervention_node is not None:
+        print(f"Generating {num_examples} instantiations of the SCM via intervention at {intervention_node}...")
+        dataset = scm.intervention_at_x(intervention_node, num_samples=num_examples)
+    else:
+        print(f"Generating {num_examples} instantiations of the SCM...")
+        dataset = scm.get_samples(num_samples=num_examples)
     dataset = dataset.reindex(natsort.natsorted(dataset.columns), axis=1)
     dataset_np = dataset.to_numpy()
 
@@ -378,8 +382,6 @@ def test(args, io):
     test_set_input, test_set_target = get_data(args.num_test_examples, device, args.inject_positional_features)
     print(f"Test shape: {test_set_input.shape}")
     
-    # TODO: Also include an intervention test here
-
     # Create the model
     input_features = test_set_input.shape[1]  # Number of features
     if args.k is None:
@@ -429,6 +431,29 @@ def test(args, io):
             shutil.rmtree(output_prefix)
         os.makedirs(output_prefix)
         plot_distance(d[0][0, :, :], d[1][0, :, :], output_prefix, args.k)  # Only plot the first example
+    
+    # Perform an intervention test
+    df = pd.DataFrame()
+    node_diff = {k: [] for k in scm.nodes}
+    for intervention_node in scm.observed_nodes:
+        test_set_input_intervention, test_set_target_intervention = get_data(args.num_test_examples, device, args.inject_positional_features, 
+                                                                             intervention_node=intervention_node)
+        with torch.no_grad():
+            output, _, _ = model(test_set_input_intervention)
+            difference = (output - test_set_target_intervention) ** 2  # Squared difference
+            difference = difference.mean(dim=0)  # B1C -> 1C (average per node difference)
+            assert difference.shape == (1, len(scm.nodes)), difference.shape
+            difference = difference[0, :].detach().cpu().numpy()
+            assert difference.shape == (len(scm.nodes),)
+        
+        for i, node_name in enumerate(scm.nodes):
+            node_diff[node_name].append(difference[i])
+    
+    df["intevention_node"] = scm.observed_nodes
+    for node_name in scm.nodes:
+        df[f"diff_{node_name}"] = node_diff[node_name]
+    output_file = 'outputs/%s/models/intervention_test.csv' % args.exp_name
+    df.to_csv(output_file)
 
 
 if __name__ == "__main__":
@@ -487,7 +512,7 @@ if __name__ == "__main__":
     else:
         io.cprint('Using CPU')
 
-    # scm = SCM()
+    scm = SCM()
     # samples = scm.get_samples(num_samples=args.num_training_samples)
     # samples = samples.reindex(natsort.natsorted(samples.columns), axis=1)
     # print(samples.shape)
