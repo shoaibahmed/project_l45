@@ -175,19 +175,21 @@ def get_data(num_examples, device, inject_positional_features=False, interventio
     # Convert the train and test set to tensors
     dataset_tensor = torch.from_numpy(dataset_np).to(device)[:, None, :].float()  # Add synthetic channel dim
     dataset_input = dataset_tensor.clone()
-    observed_vars = ["x1", "x2", "x4", "x6", "x8", "x9"]
-    keep_cols = [int(x.replace("x", "")) - 1 for x in observed_vars]
+    keep_cols = [int(x.replace("x", "")) - 1 for x in scm.observed_nodes]
     print("Keeping the following columns:", keep_cols)
+    
     num_examples = dataset_input.shape[0]
     num_nodes = dataset_input.shape[2]
     for i in range(num_nodes):
         if i not in keep_cols:
             dataset_input[:, 0, i] = 0.  # Mask all the entries in that column
+    
     if inject_positional_features:
         positional_features = torch.arange(num_nodes)
         positional_features = positional_features.repeat(num_examples, 1, 1).to(device)
         dataset_input = torch.cat([dataset_input, positional_features], dim=1)
         print("Dataset input size after positional information:", dataset_input.shape)
+    
     dataset_target = dataset_tensor
     return dataset_input, dataset_target
 
@@ -423,8 +425,7 @@ def test(args, io):
     print(f"Feature tensors: {x1.shape} / {x2.shape} / {x3.shape} / {x4.shape}")
     for i, d in enumerate([d1, d2, d3, d4]):
         print("Layer #", i)
-        print("Distances:", d[0][0])
-        print("Selected idx:", d[1][0])
+        print("Distances / idx:", d[0][0], d[1][0])
 
         output_prefix = 'outputs/%s/attention_plots/layer_%d/' % (args.exp_name, i)
         if os.path.exists(output_prefix):
@@ -449,7 +450,7 @@ def test(args, io):
         for i, node_name in enumerate(scm.nodes):
             node_diff[node_name].append(difference[i])
     
-    df["intevention_node"] = scm.observed_nodes
+    df["intervention_node"] = scm.observed_nodes
     for node_name in scm.nodes:
         df[f"diff_{node_name}"] = node_diff[node_name]
     output_file = 'outputs/%s/models/intervention_test.csv' % args.exp_name
