@@ -159,11 +159,13 @@ def _init_():
         os.makedirs('outputs/'+args.exp_name+'/'+'models')
     os.system('cp dgcnn.py outputs'+'/'+args.exp_name+'/'+'dgcnn.py.backup')
     os.system('cp train.py outputs' + '/' + args.exp_name + '/' + 'train.py.backup')
-    os.system('cp generate_data_scm.py outputs' + '/' + args.exp_name + '/' + 'generate_data_scm.py.backup')
 
 
-def process_dataset(file_name, device, inject_positional_features=False):
-    dataset = pd.read_csv(file_name)
+def get_data(num_examples, device, inject_positional_features=False):
+    # dataset = pd.read_csv(file_name)
+    scm = SCM()
+    dataset = scm.get_samples(num_samples=num_examples)
+    dataset = dataset.reindex(natsort.natsorted(dataset.columns), axis=1)
     dataset_np = dataset.to_numpy()
 
     # Convert the train and test set to tensors
@@ -195,8 +197,8 @@ def train(args, io):
     device = torch.device("cuda" if args.cuda else "cpu")
 
     # Load the dataset
-    train_set_input, train_set_target = process_dataset("train_dataset.csv", device, args.inject_positional_features)
-    test_set_input, test_set_target = process_dataset("test_dataset.csv", device, args.inject_positional_features)
+    train_set_input, train_set_target = get_data(args.num_training_examples, device, args.inject_positional_features)
+    test_set_input, test_set_target = get_data(args.num_test_examples, device, args.inject_positional_features)
     print(f"Train shape: {train_set_input.shape} / Test shape: {test_set_input.shape}")
     print(f"First example: {train_set_input[0, 0, :]} / Target {train_set_target[0, 0, :]}")
 
@@ -227,7 +229,7 @@ def train(args, io):
     train_loss_list = []
     test_loss_list = []
     log_iter = 25
-    batch_size = None
+    training_batch_size = None
 
     for epoch in range(args.epochs):
         ####################
@@ -237,10 +239,10 @@ def train(args, io):
         count = 0.0
         model.train()
         for data, label in [(train_set_input, train_set_target)]:
-            if batch_size is not None:
+            if training_batch_size is not None:
                 # Select a random batch of data
-                assert isinstance(batch_size, int)
-                selected_idx = np.random.choice(np.arange(len(data)), size=batch_size, replace=False)
+                assert isinstance(training_batch_size, int)
+                selected_idx = np.random.choice(np.arange(len(data)), size=min(training_batch_size, len(data)), replace=False)
                 data = torch.stack([data[i] for i in selected_idx], dim=0)
                 label = torch.stack([label[i] for i in selected_idx], dim=0)
 
@@ -361,7 +363,7 @@ def test(args, io):
     device = torch.device("cuda" if args.cuda else "cpu")
     
     # Load test set
-    test_set_input, test_set_target = process_dataset("test_dataset.csv", device, args.inject_positional_features)
+    test_set_input, test_set_target = get_data(args.num_test_examples, device, args.inject_positional_features)
     print(f"Test shape: {test_set_input.shape}")
 
     # Create the model
@@ -452,8 +454,14 @@ if __name__ == "__main__":
                         help='initial dropout rate')
     parser.add_argument('--emb_dims', type=int, default=1024, metavar='N',
                         help='Dimension of embeddings')
+    
     parser.add_argument('--k', type=int, default=4, metavar='N',
                         help='Num of nearest neighbors to use')
+    parser.add_argument('--num-training-examples', type=int, default=100, metavar='N',
+                        help='Num of training examples to use')
+    parser.add_argument('--num-test-examples', type=int, default=1000, metavar='N',
+                        help='Num of test examples to use')
+    
     args = parser.parse_args()
 
     args.inject_positional_features = True
@@ -475,14 +483,17 @@ if __name__ == "__main__":
     else:
         io.cprint('Using CPU')
 
-    scm = SCM()
-    samples = scm.get_samples(num_samples=100)
-    print(samples.shape)
+    # scm = SCM()
+    # samples = scm.get_samples(num_samples=args.num_training_samples)
+    # samples = samples.reindex(natsort.natsorted(samples.columns), axis=1)
+    # print(samples.shape)
 
-    node = "x4"
-    samples = scm.intervention_at_x(node=node, num_samples=10)
-    print(f"Samples after intervention at {node}: {samples}")
-    exit()
+    # node = "x4"
+    # samples = scm.intervention_at_x(node=node, num_samples=10)
+    # samples = samples.reindex(natsort.natsorted(samples.columns), axis=1)
+    # samples.to_csv("test.csv")
+    # print(f"Samples after intervention at {node}: {samples}")
+    # exit()
 
     if not args.eval:
         train(args, io)
