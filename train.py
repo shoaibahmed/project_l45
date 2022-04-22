@@ -327,7 +327,7 @@ def train(args, io):
     df["test_loss"] = test_loss_list
     
     output_file = 'outputs/%s/models/training_dynamics.csv' % args.exp_name
-    df.to_csv(output_file)
+    df.to_csv(output_file, index=False, header=True)
 
 
 def plot_distance(distance, selected_idx, path_prefix, k):
@@ -454,7 +454,7 @@ def test(args, io):
     for node_name in scm.nodes:
         df[f"diff_{node_name}"] = node_diff[node_name]
     output_file = 'outputs/%s/models/intervention_test.csv' % args.exp_name
-    df.to_csv(output_file)
+    df.to_csv(output_file, index=False, header=True)
 
 
 if __name__ == "__main__":
@@ -495,7 +495,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     args.inject_positional_features = True
-    args.exp_name = f"{args.exp_name}_train_ex_{args.num_training_examples}_{('_k_' + str(args.k)) if args.k is not None else '_fc'}{'_pos' if args.inject_positional_features else ''}"
+    args.exp_name = f"{args.exp_name}_train_ex_{args.num_training_examples}{('_k_' + str(args.k)) if args.k is not None else '_fc'}{'_pos' if args.inject_positional_features else ''}"
     
     # Create the required directories
     _init_()
@@ -521,7 +521,7 @@ if __name__ == "__main__":
     # node = "x4"
     # samples = scm.intervention_at_x(node=node, num_samples=10)
     # samples = samples.reindex(natsort.natsorted(samples.columns), axis=1)
-    # samples.to_csv("test.csv")
+    # samples.to_csv("test.csv", index=False, header=True)
     # print(f"Samples after intervention at {node}: {samples}")
     # exit()
 
