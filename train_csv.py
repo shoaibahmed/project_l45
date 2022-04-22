@@ -5,13 +5,16 @@ Code adapted from: https://github.com/AnTao97/dgcnn.pytorch
 from __future__ import print_function
 import os
 import argparse
-import numpy as np
-
+from matplotlib import markers
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 from torch.optim.lr_scheduler import CosineAnnealingLR, StepLR
+
+import numpy as np
+from torch.utils.data import DataLoader
+import sklearn.metrics as metrics
 
 from dgcnn import DGCNN_Reg
 
@@ -20,91 +23,6 @@ import graphviz
 import pandas as pd
 from colour import Color
 import matplotlib.pyplot as plt
-
-import natsort
-import networkx as nx
-from causalgraphicalmodels import StructuralCausalModel
-
-
-class SCM:
-    def __init__(self):
-        # Define the SCM
-        self.scm_dict = {
-            "x1": lambda     n_samples: np.random.normal(loc=1, scale=0.1, size=n_samples),
-            "x2": lambda     n_samples: np.random.normal(loc=0, scale=0.2, size=n_samples),
-            "x3": lambda x1, x2, n_samples: (0.5 * x1) + x2,
-            "x4": lambda     n_samples: np.random.normal(loc=-1, scale=0.1, size=n_samples),
-            "x5": lambda x3, x4, n_samples: x3 + x4,
-            "x6": lambda     n_samples: np.random.normal(loc=0, scale=0.5, size=n_samples),
-            "x7": lambda x5, x6, n_samples: x5 + x6,
-            "x8": lambda     n_samples: np.random.normal(loc=-1, scale=0.2, size=n_samples),
-            "x9": lambda     n_samples: np.random.normal(loc=1, scale=0.2, size=n_samples),
-            "x10": lambda x7, x8, x9, n_samples: x7 + x8 + x9,
-        }
-        self.scm = StructuralCausalModel(self.scm_dict)
-
-        self.nodes = natsort.natsorted(self.scm.cgm.dag.nodes())
-        print("Nodes:", self.nodes)
-
-        # Observed nodes have no parents
-        self.observed_nodes = [x for x in self.nodes if not nx.ancestors(self.scm.cgm.dag, x)]
-        print("Observed nodes:", self.observed_nodes)
-
-        self.computed_nodes = [x for x in self.nodes if x not in self.observed_nodes]
-        print("Computed nodes:", self.computed_nodes)
-    
-    def plot_scm(self, output_file='out'):
-        dot = self.scm.cgm.draw()
-        print(dot)
-        dot.render(output_file, format='jpg', cleanup=True)
-    
-    def get_nodes(self):
-        return self.nodes
-    
-    def get_observed_nodes(self):
-        return self.observed_nodes
-    
-    def get_computed_nodes(self):
-        return self.computed_nodes
-
-    def get_samples(self, num_samples):
-        return self.scm.sample(n_samples=num_samples)
-    
-    def get_all_parent_observed_nodes(self, node):
-        # Simply assume that all dependencies are sequential i.e. the variable names are sorted
-        assert node in self.observed_nodes
-        idx = [i for i in range(len(self.observed_nodes)) if self.observed_nodes[i] == node]
-        assert len(idx) == 1
-        idx = idx[0]
-        return self.observed_nodes[:idx]
-    
-    def get_unaffected_nodes(self, node):
-        # Simply assume that all dependencies are sequential i.e. the variable names are sorted
-        assert node in self.nodes
-        preceding_nodes = [x for x in self.computed_nodes if int(x.replace("x", "")) < int(node.replace("x", ""))]
-        unaffected_nodes = self.observed_nodes + preceding_nodes
-        return unaffected_nodes
-    
-    def intervention_at_x(self, node, num_samples):
-        """
-        1. Changing the value at any node should not change the value of any other observed nodes
-        2. Changing the value of x should only change all the following unobserved nodes, but not anything which is not a child of the given node
-        """
-        assert node in self.observed_nodes
-        
-        # Get a single sample for reference
-        sample = self.get_samples(num_samples=1)
-        print("Sample:", sample)
-        
-        # Get all the parent nodes
-        unaffected_nodes = self.get_unaffected_nodes(node)
-        print(f"Unaffected nodes for {node}: {unaffected_nodes}")
-
-        # Set values for all the parent nodes
-        set_dict = {k: float(sample[k]) for k in unaffected_nodes}
-        print("Using fixed values for unaffected_nodes nodes:", set_dict)
-
-        return self.scm.sample(n_samples=num_samples, set_values=set_dict)
 
 
 class IOStream():
@@ -444,15 +362,6 @@ if __name__ == "__main__":
         torch.cuda.manual_seed(args.seed)
     else:
         io.cprint('Using CPU')
-
-    scm = SCM()
-    samples = scm.get_samples(num_samples=100)
-    print(samples.shape)
-
-    node = "x4"
-    samples = scm.intervention_at_x(node=node, num_samples=10)
-    print(f"Samples after intervention at {node}: {samples}")
-    exit()
 
     if not args.eval:
         train(args, io)
