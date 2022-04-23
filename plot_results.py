@@ -61,7 +61,7 @@ if plot_knn_results:
         output_dict[num_examples][k] = {"train": train_mse, "test": test_mse}
 
         # Generate the dynamics plot
-        train_mse, test_mse = final_results["train_loss"].to_numpy(), final_results["test_loss"].to_numpy()
+        train_mse, test_mse = df["train_loss"].to_numpy(), df["test_loss"].to_numpy()
         print(len(train_mse), len(test_mse))
 
         plt.figure(figsize=(12, 8))
