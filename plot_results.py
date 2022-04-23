@@ -132,7 +132,7 @@ if plot_intervention_results:
         ax.yaxis.set_ticklabels(intervention_nodes)
 
         plt.tight_layout()
-        plt.savefig(os.path.join(output_dir, f"results_k_{k}_{training_examples}_train_ex.png"), dpi=300, bbox_inches='tight', pad_inches=0.04)
+        plt.savefig(os.path.join(output_dir, f"results_k_{k}_{num_examples}_train_ex.png"), dpi=300, bbox_inches='tight', pad_inches=0.04)
 
 # TODO: Plot the attention results here
 relevant_files = "./*/*/*/attention_stats_layer_[0-4].csv"
