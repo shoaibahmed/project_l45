@@ -69,10 +69,13 @@ if plot_knn_results:
         plt.plot(train_mse, label='Train loss', color='b')
         plt.plot(test_mse, label='Test loss', color='r')
 
-        plt.xlabel('Epochs')
-        plt.ylabel('MSE')
-        plt.title(f"DGCNN trained on synthetic realizations of an SCM with k={k} and # training examples={num_examples}")
-        plt.legend()
+        plt.xticks(fontsize=14)
+        plt.yticks(fontsize=14)
+
+        plt.xlabel('Epochs', fontsize=14)
+        plt.ylabel('MSE', fontsize=14)
+        plt.title(f"DGCNN trained on synthetic realizations of an SCM with k={k} and # training examples={num_examples}", fontsize=14)
+        plt.legend(fontsize=14)
         plt.tight_layout()
 
         output_file = os.path.join(dynamics_output_dir, f"results_dynamics_k_{k}_{num_examples}_train_ex.png")
