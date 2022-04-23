@@ -37,7 +37,12 @@ if not os.path.exists(output_dir):
     print("Created output directory...")
     os.mkdir(output_dir)
 
-plot_knn_results = False
+dynamics_output_dir = "plots/dynamics_plots/"
+if not os.path.exists(dynamics_output_dir):
+    print("Created output directory...")
+    os.mkdir(dynamics_output_dir)
+
+plot_knn_results = True
 if plot_knn_results:
     output_dict = {}
     for f in files:
@@ -54,6 +59,24 @@ if plot_knn_results:
             output_dict[num_examples] = {}
         assert k not in output_dict[num_examples]
         output_dict[num_examples][k] = {"train": train_mse, "test": test_mse}
+
+        # Generate the dynamics plot
+        train_mse, test_mse = final_results["train_loss"].to_numpy(), final_results["test_loss"].to_numpy()
+        print(len(train_mse), len(test_mse))
+
+        plt.figure(figsize=(12, 8))
+        
+        plt.plot(train_mse, label='Train loss', color='b')
+        plt.plot(test_mse, label='Test loss', color='r')
+
+        plt.xlabel('Epochs')
+        plt.ylabel('MSE')
+        plt.title(f"DGCNN trained on synthetic realizations of an SCM with k={k} and # training examples={num_examples}")
+        plt.legend()
+        plt.tight_layout()
+
+        output_file = os.path.join(dynamics_output_dir, f"results_dynamics_k_{k}_{num_examples}_train_ex.png")
+        plt.savefig(output_file, dpi=300)
 
     # Plot the dictionary here
     num_training_examples = natsort.natsorted(list(output_dict.keys()))
@@ -90,7 +113,7 @@ if plot_knn_results:
         plt.tight_layout()
         plt.savefig(os.path.join(output_dir, f"results_k_nn_{training_examples}_train_ex.png"), dpi=300)
 
-# TODO: Plot the intervention results here
+# Plot the intervention results
 relevant_files = "./*/*/*/intervention_test.csv"
 files = glob.glob(relevant_files)
 print(len(files), files[:3])
@@ -100,7 +123,7 @@ if not os.path.exists(output_dir):
     print("Created output directory...")
     os.mkdir(output_dir)
 
-plot_intervention_results = True
+plot_intervention_results = False
 if plot_intervention_results:
     for f in files:
         print("Reading file:", f)
@@ -134,7 +157,7 @@ if plot_intervention_results:
         plt.tight_layout()
         plt.savefig(os.path.join(output_dir, f"results_k_{k}_{num_examples}_train_ex.png"), dpi=300, bbox_inches='tight', pad_inches=0.04)
 
-# TODO: Plot the attention results here
+# Plot the attention results
 relevant_files = "./*/*/*/attention_stats_layer_[0-4].csv"
 files = glob.glob(relevant_files)
 print(len(files), files[:3])
@@ -144,7 +167,7 @@ if not os.path.exists(output_dir):
     print("Created output directory...")
     os.mkdir(output_dir)
 
-plot_attention_results = True
+plot_attention_results = False
 if plot_attention_results:
     for f in files:
         print("Reading file:", f)
