@@ -67,7 +67,10 @@ class SCM:
 
         self.computed_nodes = [x for x in self.nodes if x not in self.observed_nodes]
         print("Computed nodes:", self.computed_nodes)
-        
+
+        self.parent_nodes = {k: nx.ancestors(self.scm.cgm.dag, k) for k in self.nodes}
+        print("Parent nodes:", self.parent_nodes)
+
         # Define the generator dict that can be used to sample values
         self.generator_dict = {
             "x1": lambda num_samples: np.random.normal(loc=1, scale=0.1, size=num_samples),
@@ -87,6 +90,12 @@ class SCM:
     
     def get_nodes(self):
         return self.nodes
+    
+    def get_parent_nodes(self, node):
+        return self.parent_nodes[node]
+    
+    def get_parent_nodes_idx(self, node):
+        return [int(x.replace("x", "")) - 1 for x in self.parent_nodes[node]]
     
     def get_observed_nodes(self):
         return self.observed_nodes
@@ -422,17 +431,36 @@ def test(args, io):
     # Plot the distances for one of the examples
     (d1, d2, d3, d4), (x1, x2, x3, x4) = distances, features
     print(f"Distance tensors: {d1[0].shape} / {d2[0].shape} / {d3[0].shape} / {d4[0].shape}")
+    print(f"Idx tensors: {d1[1].shape} / {d2[1].shape} / {d3[1].shape} / {d4[1].shape}")
     print(f"Feature tensors: {x1.shape} / {x2.shape} / {x3.shape} / {x4.shape}")
-    for i, d in enumerate([d1, d2, d3, d4]):
+    for i, (dist, sel_idx) in enumerate([d1, d2, d3, d4]):
         print("Layer #", i)
-        print("Distances / idx:", d[0][0], d[1][0])
+        print("Distances / idx:", dist[0], sel_idx[0])
 
         output_prefix = 'outputs/%s/attention_plots/layer_%d/' % (args.exp_name, i)
         if os.path.exists(output_prefix):
             shutil.rmtree(output_prefix)
         os.makedirs(output_prefix)
-        plot_distance(d[0][0, :, :], d[1][0, :, :], output_prefix, args.k)  # Only plot the first example
-    
+        plot_distance(dist[0, :, :], sel_idx[0, :, :], output_prefix, args.k)  # Only plot the first example
+
+        # Compute attention matrix (nodes x nodes -- diagonal represents the number of examples) -- can color the actual parents later
+        # sel_idx shape: B x N x K
+        assert sel_idx.shape == (len(sel_idx), len(scm.nodes), args.k)
+
+        df = pd.DataFrame()
+        df["node"] = scm.nodes
+        attention_count = np.zeros((len(scm.nodes), len(scm.nodes)), dtype=np.int64)
+        for b in range(sel_idx.shape[0]):  # Iterate over examples
+            for n in range(sel_idx.shape[1]):
+                for k in sel_idx[b, n]:
+                    attention_count[n, k] += 1
+        print("Attention count:", attention_count)
+        
+        for node_j, node_name in enumerate(scm.nodes):
+            df[f"connected_to_{node_name}"] = attention_count[:, node_j]
+        output_file = 'outputs/%s/models/attention_stats_layer_%d.csv' % (args.exp_name, i)
+        df.to_csv(output_file, index=False, header=True)
+
     # Perform an intervention test
     df = pd.DataFrame()
     node_diff = {k: [] for k in scm.nodes}
