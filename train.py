@@ -496,7 +496,7 @@ if __name__ == "__main__":
                         help='Num of test examples to use')
     parser.add_argument('--batch_size', type=int, default=None, metavar='batch_size',
                         help='Size of batch)')
-    parser.add_argument('--epochs', type=int, default=250, metavar='N',
+    parser.add_argument('--epochs', type=int, default=500, metavar='N',
                         help='number of episode to train ')
     parser.add_argument('--use_sgd', type=bool, default=False,
                         help='Use SGD')
