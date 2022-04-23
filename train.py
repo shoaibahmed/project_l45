@@ -316,7 +316,7 @@ def train(args, io):
     plt.plot(test_loss_list, label='Test loss', color='r')
 
     plt.xlabel('Epochs')
-    plt.ylabel('Accuracy (%)')
+    plt.ylabel('MSE')
     plt.title("DGCNN trained on synthetic realizations of an SCM")
     plt.legend()
     plt.tight_layout()
@@ -455,7 +455,7 @@ def test(args, io):
                 for k in sel_idx[b, n]:
                     attention_count[n, k] += 1
         print("Attention count:", attention_count)
-        
+
         for node_j, node_name in enumerate(scm.nodes):
             df[f"connected_to_{node_name}"] = attention_count[:, node_j]
         output_file = 'outputs/%s/models/attention_stats_layer_%d.csv' % (args.exp_name, i)
