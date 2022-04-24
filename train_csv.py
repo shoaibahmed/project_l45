@@ -5,13 +5,16 @@ Code adapted from: https://github.com/AnTao97/dgcnn.pytorch
 from __future__ import print_function
 import os
 import argparse
-import numpy as np
-
+from matplotlib import markers
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 from torch.optim.lr_scheduler import CosineAnnealingLR, StepLR
+
+import numpy as np
+from torch.utils.data import DataLoader
+import sklearn.metrics as metrics
 
 from dgcnn import DGCNN_Reg
 
@@ -20,130 +23,6 @@ import graphviz
 import pandas as pd
 from colour import Color
 import matplotlib.pyplot as plt
-
-import natsort
-import networkx as nx
-from causalgraphicalmodels import StructuralCausalModel
-
-
-class SCM:
-    def __init__(self):
-        # Define the SCM
-        # self.scm_dict = {
-        #     "x1": lambda     n_samples: np.random.normal(loc=1, scale=0.1, size=n_samples),
-        #     "x2": lambda     n_samples: np.random.normal(loc=0, scale=0.2, size=n_samples),
-        #     "x3": lambda x1, x2, n_samples: (0.5 * x1) + x2,
-        #     "x4": lambda     n_samples: np.random.normal(loc=-1, scale=0.1, size=n_samples),
-        #     "x5": lambda x3, x4, n_samples: x3 + x4,
-        #     "x6": lambda     n_samples: np.random.normal(loc=0, scale=0.5, size=n_samples),
-        #     "x7": lambda x5, x6, n_samples: x5 + x6,
-        #     "x8": lambda     n_samples: np.random.normal(loc=-1, scale=0.2, size=n_samples),
-        #     "x9": lambda     n_samples: np.random.normal(loc=1, scale=0.2, size=n_samples),
-        #     "x10": lambda x7, x8, x9, n_samples: x7 + x8 + x9,
-        # }
-        
-        self.scm_dict = {
-            "x1": None,
-            "x2": None,
-            "x3": lambda x1, x2, n_samples: (0.5 * x1) + x2,
-            "x4": None,
-            "x5": lambda x3, x4, n_samples: x3 + x4,
-            "x6": None,
-            "x7": lambda x5, x6, n_samples: x5 + x6,
-            "x8": None,
-            "x9": None,
-            "x10": lambda x7, x8, x9, n_samples: x7 + x8 + x9,
-        }
-        
-        self.scm = StructuralCausalModel(self.scm_dict)
-        # self.plot_scm()
-
-        self.nodes = natsort.natsorted(self.scm.cgm.dag.nodes())
-        print("Nodes:", self.nodes)
-
-        # Observed nodes have no parents
-        self.observed_nodes = [x for x in self.nodes if not nx.ancestors(self.scm.cgm.dag, x)]
-        print("Observed nodes:", self.observed_nodes)
-
-        self.computed_nodes = [x for x in self.nodes if x not in self.observed_nodes]
-        print("Computed nodes:", self.computed_nodes)
-
-        self.parent_nodes = {k: nx.ancestors(self.scm.cgm.dag, k) for k in self.nodes}
-        print("Parent nodes:", self.parent_nodes)
-
-        # Define the generator dict that can be used to sample values
-        self.generator_dict = {
-            "x1": lambda num_samples: np.random.normal(loc=1, scale=0.1, size=num_samples),
-            "x2": lambda num_samples: np.random.normal(loc=0, scale=0.2, size=num_samples),
-            "x4": lambda num_samples: np.random.normal(loc=-1, scale=0.1, size=num_samples),
-            "x6": lambda num_samples: np.random.normal(loc=0, scale=0.5, size=num_samples),
-            "x8": lambda num_samples: np.random.normal(loc=-1, scale=0.2, size=num_samples),
-            "x9": lambda num_samples: np.random.normal(loc=1, scale=0.2, size=num_samples)
-        }
-        assert all([x in self.observed_nodes for x in list(self.generator_dict.keys())])
-        assert all([x not in self.computed_nodes for x in list(self.generator_dict.keys())])
-    
-    def plot_scm(self, output_file='out'):
-        dot = self.scm.cgm.draw()
-        print(dot)
-        dot.render(output_file, format='jpg', cleanup=True)
-    
-    def get_nodes(self):
-        return self.nodes
-    
-    def get_parent_nodes(self, node):
-        return self.parent_nodes[node]
-    
-    def get_parent_nodes_idx(self, node):
-        return [int(x.replace("x", "")) - 1 for x in self.parent_nodes[node]]
-    
-    def get_observed_nodes(self):
-        return self.observed_nodes
-    
-    def get_computed_nodes(self):
-        return self.computed_nodes
-
-    def get_samples(self, num_samples):
-        # Set values for all the observed nodes
-        set_dict = {k: self.generator_dict[k](num_samples) for k in self.observed_nodes}
-        return self.scm.sample(n_samples=num_samples, set_values=set_dict)
-    
-    def get_all_parent_observed_nodes(self, node):
-        # Simply assume that all dependencies are sequential i.e. the variable names are sorted
-        assert node in self.observed_nodes
-        idx = [i for i in range(len(self.observed_nodes)) if self.observed_nodes[i] == node]
-        assert len(idx) == 1
-        idx = idx[0]
-        return self.observed_nodes[:idx]
-    
-    def get_unaffected_nodes(self, node):
-        # Simply assume that all dependencies are sequential i.e. the variable names are sorted
-        assert node in self.nodes
-        preceding_nodes = [x for x in self.computed_nodes if int(x.replace("x", "")) < int(node.replace("x", ""))]
-        unaffected_nodes = [x for x in self.observed_nodes if x != node] + preceding_nodes
-        return unaffected_nodes
-    
-    def intervention_at_x(self, node, num_samples):
-        """
-        1. Changing the value at any node should not change the value of any other observed nodes
-        2. Changing the value of x should only change all the following unobserved nodes, but not anything which is not a child of the given node
-        """
-        assert node in self.observed_nodes
-        
-        # Get a single sample for reference
-        sample = self.get_samples(num_samples=1)
-        print("Sample:", sample)
-        
-        # Get all the parent nodes
-        unaffected_nodes = self.get_unaffected_nodes(node)
-        print(f"Unaffected nodes for {node}: {unaffected_nodes}")
-
-        # Set values for all the parent nodes
-        set_dict = {k: [float(sample[k]) for _ in range(num_samples)] for k in unaffected_nodes}
-        set_dict[node] = self.generator_dict[node](num_samples)
-        print("Using fixed values for unaffected nodes:", {k: v[0] for k, v in set_dict.items()})
-
-        return self.scm.sample(n_samples=num_samples, set_values=set_dict)
 
 
 class IOStream():
@@ -168,37 +47,29 @@ def _init_():
         os.makedirs('outputs/'+args.exp_name+'/'+'models')
     os.system('cp dgcnn.py outputs'+'/'+args.exp_name+'/'+'dgcnn.py.backup')
     os.system('cp train.py outputs' + '/' + args.exp_name + '/' + 'train.py.backup')
+    os.system('cp generate_data_scm.py outputs' + '/' + args.exp_name + '/' + 'generate_data_scm.py.backup')
 
 
-def get_data(num_examples, device, inject_positional_features=False, intervention_node=None):
-    # dataset = pd.read_csv(file_name)
-    if intervention_node is not None:
-        print(f"Generating {num_examples} instantiations of the SCM via intervention at {intervention_node}...")
-        dataset = scm.intervention_at_x(intervention_node, num_samples=num_examples)
-    else:
-        print(f"Generating {num_examples} instantiations of the SCM...")
-        dataset = scm.get_samples(num_samples=num_examples)
-    dataset = dataset.reindex(natsort.natsorted(dataset.columns), axis=1)
+def process_dataset(file_name, device, inject_positional_features=False):
+    dataset = pd.read_csv(file_name)
     dataset_np = dataset.to_numpy()
 
     # Convert the train and test set to tensors
     dataset_tensor = torch.from_numpy(dataset_np).to(device)[:, None, :].float()  # Add synthetic channel dim
     dataset_input = dataset_tensor.clone()
-    keep_cols = [int(x.replace("x", "")) - 1 for x in scm.observed_nodes]
+    observed_vars = ["x1", "x2", "x4", "x6", "x8", "x9"]
+    keep_cols = [int(x.replace("x", "")) - 1 for x in observed_vars]
     print("Keeping the following columns:", keep_cols)
-    
     num_examples = dataset_input.shape[0]
     num_nodes = dataset_input.shape[2]
     for i in range(num_nodes):
         if i not in keep_cols:
             dataset_input[:, 0, i] = 0.  # Mask all the entries in that column
-    
     if inject_positional_features:
         positional_features = torch.arange(num_nodes)
         positional_features = positional_features.repeat(num_examples, 1, 1).to(device)
         dataset_input = torch.cat([dataset_input, positional_features], dim=1)
         print("Dataset input size after positional information:", dataset_input.shape)
-    
     dataset_target = dataset_tensor
     return dataset_input, dataset_target
 
@@ -212,8 +83,8 @@ def train(args, io):
     device = torch.device("cuda" if args.cuda else "cpu")
 
     # Load the dataset
-    train_set_input, train_set_target = get_data(args.num_training_examples, device, args.inject_positional_features)
-    test_set_input, test_set_target = get_data(args.num_test_examples, device, args.inject_positional_features)
+    train_set_input, train_set_target = process_dataset("train_dataset.csv", device, args.inject_positional_features)
+    test_set_input, test_set_target = process_dataset("test_dataset.csv", device, args.inject_positional_features)
     print(f"Train shape: {train_set_input.shape} / Test shape: {test_set_input.shape}")
     print(f"First example: {train_set_input[0, 0, :]} / Target {train_set_target[0, 0, :]}")
 
@@ -244,8 +115,7 @@ def train(args, io):
     train_loss_list = []
     test_loss_list = []
     log_iter = 25
-    if args.batch_size is not None:
-        print("Using random sampling in the dataset with a batch size of:", args.batch_size)
+    batch_size = None
 
     for epoch in range(args.epochs):
         ####################
@@ -255,10 +125,10 @@ def train(args, io):
         count = 0.0
         model.train()
         for data, label in [(train_set_input, train_set_target)]:
-            if args.batch_size is not None:
+            if batch_size is not None:
                 # Select a random batch of data
-                assert isinstance(args.batch_size, int)
-                selected_idx = np.random.choice(np.arange(len(data)), size=min(args.batch_size, len(data)), replace=False)
+                assert isinstance(batch_size, int)
+                selected_idx = np.random.choice(np.arange(len(data)), size=batch_size, replace=False)
                 data = torch.stack([data[i] for i in selected_idx], dim=0)
                 label = torch.stack([label[i] for i in selected_idx], dim=0)
 
@@ -316,7 +186,7 @@ def train(args, io):
     plt.plot(test_loss_list, label='Test loss', color='r')
 
     plt.xlabel('Epochs')
-    plt.ylabel('MSE')
+    plt.ylabel('Accuracy (%)')
     plt.title("DGCNN trained on synthetic realizations of an SCM")
     plt.legend()
     plt.tight_layout()
@@ -324,19 +194,8 @@ def train(args, io):
     output_file = 'outputs/%s/models/training_dynamics.png' % args.exp_name
     if output_file is not None:
         plt.savefig(output_file, dpi=300)
-    else:
-        plt.show()
-    
-    # Write the list in a csv file to be read in later
-    epoch_list = list(range(1, len(train_loss_list)+1))
-    assert len(epoch_list) == len(train_loss_list) == len(test_loss_list)
-    df = pd.DataFrame()
-    df["epochs"] = epoch_list
-    df["train_loss"] = train_loss_list
-    df["test_loss"] = test_loss_list
-    
-    output_file = 'outputs/%s/models/training_dynamics.csv' % args.exp_name
-    df.to_csv(output_file, index=False, header=True)
+    plt.show()
+    plt.close('all')
 
 
 def plot_distance(distance, selected_idx, path_prefix, k):
@@ -390,9 +249,9 @@ def test(args, io):
     device = torch.device("cuda" if args.cuda else "cpu")
     
     # Load test set
-    test_set_input, test_set_target = get_data(args.num_test_examples, device, args.inject_positional_features)
+    test_set_input, test_set_target = process_dataset("test_dataset.csv", device, args.inject_positional_features)
     print(f"Test shape: {test_set_input.shape}")
-    
+
     # Create the model
     input_features = test_set_input.shape[1]  # Number of features
     if args.k is None:
@@ -431,58 +290,17 @@ def test(args, io):
     # Plot the distances for one of the examples
     (d1, d2, d3, d4), (x1, x2, x3, x4) = distances, features
     print(f"Distance tensors: {d1[0].shape} / {d2[0].shape} / {d3[0].shape} / {d4[0].shape}")
-    print(f"Idx tensors: {d1[1].shape} / {d2[1].shape} / {d3[1].shape} / {d4[1].shape}")
     print(f"Feature tensors: {x1.shape} / {x2.shape} / {x3.shape} / {x4.shape}")
-    for i, (dist, sel_idx) in enumerate([d1, d2, d3, d4]):
+    for i, d in enumerate([d1, d2, d3, d4]):
         print("Layer #", i)
-        print("Distances / idx:", dist[0], sel_idx[0])
+        print("Distances:", d[0][0])
+        print("Selected idx:", d[1][0])
 
         output_prefix = 'outputs/%s/attention_plots/layer_%d/' % (args.exp_name, i)
         if os.path.exists(output_prefix):
             shutil.rmtree(output_prefix)
         os.makedirs(output_prefix)
-        plot_distance(dist[0, :, :], sel_idx[0, :, :], output_prefix, args.k)  # Only plot the first example
-
-        # Compute attention matrix (nodes x nodes -- diagonal represents the number of examples) -- can color the actual parents later
-        # sel_idx shape: B x N x K
-        assert sel_idx.shape == (len(sel_idx), len(scm.nodes), args.k)
-
-        df = pd.DataFrame()
-        df["node"] = scm.nodes
-        attention_count = np.zeros((len(scm.nodes), len(scm.nodes)), dtype=np.int64)
-        for b in range(sel_idx.shape[0]):  # Iterate over examples
-            for n in range(sel_idx.shape[1]):
-                for k in sel_idx[b, n]:
-                    attention_count[n, k] += 1
-        print("Attention count:", attention_count)
-
-        for node_j, node_name in enumerate(scm.nodes):
-            df[f"connected_to_{node_name}"] = attention_count[:, node_j]
-        output_file = 'outputs/%s/models/attention_stats_layer_%d.csv' % (args.exp_name, i)
-        df.to_csv(output_file, index=False, header=True)
-
-    # Perform an intervention test
-    df = pd.DataFrame()
-    node_diff = {k: [] for k in scm.nodes}
-    for intervention_node in scm.observed_nodes:
-        test_set_input_intervention, test_set_target_intervention = get_data(args.num_test_examples, device, args.inject_positional_features, 
-                                                                             intervention_node=intervention_node)
-        with torch.no_grad():
-            output, _, _ = model(test_set_input_intervention)
-            difference = (output - test_set_target_intervention) ** 2  # Squared difference
-            difference = difference.mean(dim=0)  # B1C -> 1C (average per node difference)
-            assert difference.shape == (1, len(scm.nodes)), difference.shape
-            difference = difference[0, :].detach().cpu().numpy()
-            assert difference.shape == (len(scm.nodes),)
-        
-        for i, node_name in enumerate(scm.nodes):
-            node_diff[node_name].append(difference[i])
-    
-    df["intervention_node"] = scm.observed_nodes
-    for node_name in scm.nodes:
-        df[f"diff_{node_name}"] = node_diff[node_name]
-    output_file = 'outputs/%s/models/intervention_test.csv' % args.exp_name
-    df.to_csv(output_file, index=False, header=True)
+        plot_distance(d[0][0, :, :], d[1][0, :, :], output_prefix, args.k)  # Only plot the first example
 
 
 if __name__ == "__main__":
@@ -490,13 +308,16 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='SCM training test')
     parser.add_argument('--exp_name', type=str, default='exp', metavar='N',
                         help='Name of the experiment')
-    parser.add_argument('--num-training-examples', type=int, default=100, metavar='N',
-                        help='Num of training examples to use')
-    parser.add_argument('--num-test-examples', type=int, default=1000, metavar='N',
-                        help='Num of test examples to use')
-    parser.add_argument('--batch_size', type=int, default=None, metavar='batch_size',
+    parser.add_argument('--model', type=str, default='dgcnn', metavar='N',
+                        choices=['pointnet', 'dgcnn'],
+                        help='Model to use, [pointnet, dgcnn]')
+    parser.add_argument('--dataset', type=str, default='modelnet40', metavar='N',
+                        choices=['modelnet40'])
+    parser.add_argument('--batch_size', type=int, default=32, metavar='batch_size',
                         help='Size of batch)')
-    parser.add_argument('--epochs', type=int, default=500, metavar='N',
+    parser.add_argument('--test_batch_size', type=int, default=16, metavar='batch_size',
+                        help='Size of batch)')
+    parser.add_argument('--epochs', type=int, default=250, metavar='N',
                         help='number of episode to train ')
     parser.add_argument('--use_sgd', type=bool, default=False,
                         help='Use SGD')
@@ -513,17 +334,18 @@ if __name__ == "__main__":
                         help='random seed (default: 1)')
     parser.add_argument('--eval', type=bool,  default=False,
                         help='evaluate the model')
+    parser.add_argument('--num_points', type=int, default=1024,
+                        help='num of points to use')
     parser.add_argument('--dropout', type=float, default=0.5,
                         help='initial dropout rate')
     parser.add_argument('--emb_dims', type=int, default=1024, metavar='N',
                         help='Dimension of embeddings')
     parser.add_argument('--k', type=int, default=4, metavar='N',
                         help='Num of nearest neighbors to use')
-    
     args = parser.parse_args()
 
     args.inject_positional_features = True
-    args.exp_name = f"{args.exp_name}_train_ex_{args.num_training_examples}{('_k_' + str(args.k)) if args.k is not None else '_fc'}{'_pos' if args.inject_positional_features else ''}"
+    args.exp_name = f"{args.exp_name}{('_k_' + str(args.k)) if args.k is not None else '_fc'}{'_pos' if args.inject_positional_features else ''}"
     
     # Create the required directories
     _init_()
@@ -540,18 +362,6 @@ if __name__ == "__main__":
         torch.cuda.manual_seed(args.seed)
     else:
         io.cprint('Using CPU')
-
-    scm = SCM()
-    # samples = scm.get_samples(num_samples=args.num_training_samples)
-    # samples = samples.reindex(natsort.natsorted(samples.columns), axis=1)
-    # print(samples.shape)
-
-    # node = "x4"
-    # samples = scm.intervention_at_x(node=node, num_samples=10)
-    # samples = samples.reindex(natsort.natsorted(samples.columns), axis=1)
-    # samples.to_csv("test.csv", index=False, header=True)
-    # print(f"Samples after intervention at {node}: {samples}")
-    # exit()
 
     if not args.eval:
         train(args, io)

@@ -1,0 +1,4 @@
+__pycache__/
+**/*[Oo]utputs*/
+*.jpg
+*.csv
