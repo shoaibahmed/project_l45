@@ -1,4 +1,4 @@
-# Code the L45 Project
+# Code for L45 Project
 
 Repository containing code for the L45 project: *Can k-NN-based graph inference methods discover the underlying causal structure?*
 
