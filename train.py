@@ -29,19 +29,6 @@ from causalgraphicalmodels import StructuralCausalModel
 class SCM:
     def __init__(self):
         # Define the SCM
-        # self.scm_dict = {
-        #     "x1": lambda     n_samples: np.random.normal(loc=1, scale=0.1, size=n_samples),
-        #     "x2": lambda     n_samples: np.random.normal(loc=0, scale=0.2, size=n_samples),
-        #     "x3": lambda x1, x2, n_samples: (0.5 * x1) + x2,
-        #     "x4": lambda     n_samples: np.random.normal(loc=-1, scale=0.1, size=n_samples),
-        #     "x5": lambda x3, x4, n_samples: x3 + x4,
-        #     "x6": lambda     n_samples: np.random.normal(loc=0, scale=0.5, size=n_samples),
-        #     "x7": lambda x5, x6, n_samples: x5 + x6,
-        #     "x8": lambda     n_samples: np.random.normal(loc=-1, scale=0.2, size=n_samples),
-        #     "x9": lambda     n_samples: np.random.normal(loc=1, scale=0.2, size=n_samples),
-        #     "x10": lambda x7, x8, x9, n_samples: x7 + x8 + x9,
-        # }
-        
         self.scm_dict = {
             "x1": None,
             "x2": None,
@@ -541,17 +528,8 @@ if __name__ == "__main__":
     else:
         io.cprint('Using CPU')
 
+    # Create an instance of the SCM
     scm = SCM()
-    # samples = scm.get_samples(num_samples=args.num_training_samples)
-    # samples = samples.reindex(natsort.natsorted(samples.columns), axis=1)
-    # print(samples.shape)
-
-    # node = "x4"
-    # samples = scm.intervention_at_x(node=node, num_samples=10)
-    # samples = samples.reindex(natsort.natsorted(samples.columns), axis=1)
-    # samples.to_csv("test.csv", index=False, header=True)
-    # print(f"Samples after intervention at {node}: {samples}")
-    # exit()
 
     if not args.eval:
         train(args, io)
