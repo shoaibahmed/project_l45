@@ -27,10 +27,11 @@ def get_k_train_ex_from_file(file_name):
     
     return k, num_examples
 
-
-relevant_files = "./*/*/*/training_dynamics.csv"
+root_dir = "./outputs_interpretable"
+relevant_files = f"{root_dir}/*/*/training_dynamics.csv"
 files = glob.glob(relevant_files)
 print(len(files), files[:3])
+assert len(files) > 0
 
 output_dir = "plots/"
 if not os.path.exists(output_dir):
@@ -117,9 +118,10 @@ if plot_knn_results:
         plt.savefig(os.path.join(output_dir, f"results_k_nn_{training_examples}_train_ex.png"), dpi=300)
 
 # Plot the intervention results
-relevant_files = "./*/*/*/intervention_test.csv"
+relevant_files = f"{root_dir}/*/*/intervention_test.csv"
 files = glob.glob(relevant_files)
 print(len(files), files[:3])
+assert len(files) > 0
 
 output_dir = "plots/intervention_plots/"
 if not os.path.exists(output_dir):
@@ -161,9 +163,10 @@ if plot_intervention_results:
         plt.savefig(os.path.join(output_dir, f"results_k_{k}_{num_examples}_train_ex.png"), dpi=300, bbox_inches='tight', pad_inches=0.04)
 
 # Plot the attention results
-relevant_files = "./*/*/*/attention_stats_layer_[0-4].csv"
+relevant_files = f"{root_dir}/*/*/attention_stats_layer_[0-4].csv"
 files = glob.glob(relevant_files)
 print(len(files), files[:3])
+assert len(files) > 0
 
 output_dir = "plots/attention_plots/"
 if not os.path.exists(output_dir):

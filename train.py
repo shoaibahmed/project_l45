@@ -13,7 +13,7 @@ import torch.nn.functional as F
 import torch.optim as optim
 from torch.optim.lr_scheduler import CosineAnnealingLR, StepLR
 
-from dgcnn import DGCNN_Reg
+from dgcnn import DGCNN
 
 import shutil
 import graphviz
@@ -209,8 +209,8 @@ def train(args, io):
     if args.k is None:
         args.k = train_set_input.shape[2]  # Number of nodes
     print("Setting k in latent graph inference to be:", args.k)
-    model = DGCNN_Reg(args, input_features=input_features).to(device)
-    # print(str(model))
+    model = DGCNN(args, input_features=input_features, interpretable_dgcnn=args.interpretable_dgcnn).to(device)
+    print(str(model))
 
     weight_decay = 1e-4
     if args.use_sgd:
@@ -385,7 +385,7 @@ def test(args, io):
     if args.k is None:
         args.k = test_set_input.shape[2]  # Number of nodes
     print("Setting k in latent graph inference to be:", args.k)
-    model = DGCNN_Reg(args, input_features=input_features, return_features=True).to(device)
+    model = DGCNN(args, input_features=input_features, return_features=True, interpretable_dgcnn=args.interpretable_dgcnn).to(device)
     model.load_state_dict(torch.load(args.model_output_file))  # Load the checkpoint
     model = model.eval()
 
@@ -500,18 +500,18 @@ if __name__ == "__main__":
                         help='random seed (default: 1)')
     parser.add_argument('--eval', type=bool,  default=False,
                         help='evaluate the model')
-    parser.add_argument('--dropout', type=float, default=0.5,
-                        help='initial dropout rate')
     parser.add_argument('--emb_dims', type=int, default=1024, metavar='N',
                         help='Dimension of embeddings')
     parser.add_argument('--k', type=int, default=4, metavar='N',
                         help='Num of nearest neighbors to use')
-    
+    parser.add_argument('--interpretable_dgcnn', type=bool, default=False,
+                        help='use interpretable version of DGCNN (uses a single channel for the messages to be interpretable)')
     args = parser.parse_args()
 
     args.inject_positional_features = True
-    args.exp_name = f"{args.exp_name}_train_ex_{args.num_training_examples}{('_k_' + str(args.k)) if args.k is not None else '_fc'}{'_pos' if args.inject_positional_features else ''}"
-    
+    args.exp_name = f"{args.exp_name}{'_interpretable' if args.interpretable_dgcnn else ''}_train_ex_{args.num_training_examples}{('_k_' + str(args.k)) if args.k is not None else '_fc'}{'_pos' if args.inject_positional_features else ''}"
+    print("Experiment name:", args.exp_name)
+
     # Create the required directories
     _init_()
 
