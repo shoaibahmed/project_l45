@@ -27,7 +27,7 @@ def get_k_train_ex_from_file(file_name):
     
     return k, num_examples
 
-root_dir = "./outputs_interpretable"
+root_dir = "./outputs"
 relevant_files = f"{root_dir}/*/*/training_dynamics.csv"
 files = glob.glob(relevant_files)
 print(len(files), files[:3])
@@ -90,7 +90,8 @@ if plot_knn_results:
     print("k-NN configurations:", k_settings)
 
     # Validate that the k settings are same for every run
-    assert all([all([natsort.natsorted(list(output_dict[num_training_examples[i]].keys())) == k_settings]) for i in range(len(num_training_examples))])
+    assert all([all([natsort.natsorted(list(output_dict[num_training_examples[i]].keys())) == k_settings]) for i in range(len(num_training_examples))]), \
+        {num_training_examples[i]: natsort.natsorted(list(output_dict[num_training_examples[i]].keys())) for i in range(len(num_training_examples))}
 
     # Compute the same limits
     max_val = None
