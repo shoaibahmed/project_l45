@@ -27,7 +27,7 @@ def get_k_train_ex_from_file(file_name):
     
     return k, num_examples
 
-root_dir = "./outputs"
+root_dir = "./outputs_easy"
 relevant_files = f"{root_dir}/*/*/training_dynamics.csv"
 files = glob.glob(relevant_files)
 print(len(files), files[:3])
@@ -129,8 +129,9 @@ if not os.path.exists(output_dir):
     print("Created output directory...")
     os.mkdir(output_dir)
 
-plot_intervention_results = False
+plot_intervention_results = True
 if plot_intervention_results:
+    output_dict = {}
     for f in files:
         print("Reading file:", f)
         df = pd.read_csv(f)
@@ -151,6 +152,11 @@ if plot_intervention_results:
         intervention_results = df.to_numpy()
         print(intervention_results)
         
+        if num_examples not in output_dict:
+            output_dict[num_examples] = {}
+        assert k not in output_dict[num_examples]
+        output_dict[num_examples][k] = intervention_results.sum()  # Sum over all nodes
+        
         ax = sns.heatmap(intervention_results, annot=True, cmap='Blues', cbar=False)
 
         ax.set_title(f'Impact of intervention with model trained with k={k} and # training examples={num_examples}\n')
@@ -162,6 +168,42 @@ if plot_intervention_results:
 
         plt.tight_layout()
         plt.savefig(os.path.join(output_dir, f"results_k_{k}_{num_examples}_train_ex.png"), dpi=300, bbox_inches='tight', pad_inches=0.04)
+    
+    # Plot the dictionary here
+    num_training_examples = natsort.natsorted(list(output_dict.keys()))
+    print("Number of training examples:", num_training_examples)
+
+    k_settings = natsort.natsorted(list(output_dict[num_training_examples[0]].keys()))
+    print("k-NN configurations:", k_settings)
+
+    # Validate that the k settings are same for every run
+    assert all([all([natsort.natsorted(list(output_dict[num_training_examples[i]].keys())) == k_settings]) for i in range(len(num_training_examples))]), \
+        {num_training_examples[i]: natsort.natsorted(list(output_dict[num_training_examples[i]].keys())) for i in range(len(num_training_examples))}
+
+    # Compute the same limits
+    max_val = None
+    for training_examples in num_training_examples:
+        k_nn_mse = [output_dict[training_examples][k] for k in k_settings]
+        if max_val is None:
+            max_val = max(k_nn_mse)
+        else:
+            max_val = max(max_val, max(k_nn_mse))
+
+    for training_examples in num_training_examples:
+        plt.figure(figsize=(6, 6))
+        
+        bar_width = 0.5
+        k_nn_mse = [output_dict[training_examples][k] for k in k_settings]
+        plt.bar(range(len(k_settings)), k_nn_mse, width=bar_width, color = 'orange', edgecolor = 'black')
+        
+        plt.xticks(np.arange(len(k_settings)), k_settings)
+        plt.ylabel('Aggregated MSE after interventions', fontsize=14)
+        plt.xlabel('k for k-NN', fontsize=14)
+        plt.title(f"Impact of k with {training_examples} training examples", fontsize=14)
+        plt.ylim(0, max_val)
+
+        plt.tight_layout()
+        plt.savefig(os.path.join(output_dir, f"results_intervention_k_nn_{training_examples}_train_ex.png"), dpi=300)
 
 # Plot the attention results
 relevant_files = f"{root_dir}/*/*/attention_stats_layer_[0-4].csv"
@@ -174,7 +216,7 @@ if not os.path.exists(output_dir):
     print("Created output directory...")
     os.mkdir(output_dir)
 
-plot_attention_results = False
+plot_attention_results = True
 if plot_attention_results:
     for f in files:
         print("Reading file:", f)
