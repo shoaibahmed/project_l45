@@ -27,23 +27,79 @@ from causalgraphicalmodels import StructuralCausalModel
 
 
 class SCM:
-    def __init__(self):
+    def __init__(self, scm_type):
+        assert scm_type in ["scm_easy", "scm_difficult"]
+        self.scm_type = scm_type
+
         # Define the SCM
-        self.scm_dict = {
-            "x1": None,
-            "x2": None,
-            "x3": lambda x1, x2, n_samples: (0.5 * x1) + x2,
-            "x4": None,
-            "x5": lambda x3, x4, n_samples: x3 + x4,
-            "x6": None,
-            "x7": lambda x5, x6, n_samples: x5 + x6,
-            "x8": None,
-            "x9": None,
-            "x10": lambda x7, x8, x9, n_samples: x7 + x8 + x9,
-        }
+        if scm_type == "scm_easy":
+            print("Generating data from the easy SCM instance...")
+            self.scm_dict = {
+                "x1": None,
+                "x2": None,
+                "x3": lambda x1, x2, n_samples: (0.5 * x1) + x2,
+                "x4": None,
+                "x5": lambda x3, x4, n_samples: x3 + x4,
+                "x6": None,
+                "x7": lambda x5, x6, n_samples: x5 + x6,
+                "x8": None,
+                "x9": None,
+                "x10": lambda x7, x8, x9, n_samples: x7 + x8 + x9,
+            }
+
+            # Define the generator dict that can be used to sample values
+            self.generator_dict = {
+                "x1": lambda num_samples: np.random.normal(loc=1, scale=0.1, size=num_samples),
+                "x2": lambda num_samples: np.random.normal(loc=0, scale=0.2, size=num_samples),
+                "x4": lambda num_samples: np.random.normal(loc=-1, scale=0.1, size=num_samples),
+                "x6": lambda num_samples: np.random.normal(loc=0, scale=0.5, size=num_samples),
+                "x8": lambda num_samples: np.random.normal(loc=-1, scale=0.2, size=num_samples),
+                "x9": lambda num_samples: np.random.normal(loc=1, scale=0.2, size=num_samples)
+            }
+        
+        else:
+            print("Generating data from the difficult SCM instance...")
+            self.scm_dict = {
+                # First branch
+                "x1": None,
+                "x2": None,
+                "x3": lambda x1, x2, n_samples: (0.5 * x1) + x2,
+                "x4": None,
+                "x5": lambda x3, x4, n_samples: x3 + x4,
+                "x6": None,
+                "x7": lambda x5, x6, n_samples: x5 + x6,
+                "x8": None,
+                
+                # Second branch (very similar to the first one)
+                "x9": None,
+                "x10": None,
+                "x11": lambda x9, x10, n_samples: (0.5 * x9) + x10,
+                "x12": None,
+                "x13": lambda x11, x12, n_samples: x11 + x12,
+                "x14": None,
+                "x15": lambda x13, x14, n_samples: x13 + x14,
+
+                "x16": lambda x7, x8, x15, n_samples: x7 + x8 + x15,
+            }
+
+            # Define the generator dict that can be used to sample values
+            self.generator_dict = {
+                # First branch
+                "x1": lambda num_samples: np.random.normal(loc=1, scale=0.1, size=num_samples),
+                "x2": lambda num_samples: np.random.normal(loc=0, scale=0.2, size=num_samples),
+                "x4": lambda num_samples: np.random.normal(loc=-1, scale=0.1, size=num_samples),
+                "x6": lambda num_samples: np.random.normal(loc=0, scale=0.5, size=num_samples),
+                "x8": lambda num_samples: np.random.normal(loc=-1, scale=0.2, size=num_samples),
+                
+                # Second branch
+                "x9": lambda num_samples: np.random.normal(loc=1, scale=0.1, size=num_samples),
+                "x10": lambda num_samples: np.random.normal(loc=0, scale=0.2, size=num_samples),
+                "x12": lambda num_samples: np.random.normal(loc=-1, scale=0.1, size=num_samples),
+                "x14": lambda num_samples: np.random.normal(loc=0, scale=0.5, size=num_samples)
+            }
         
         self.scm = StructuralCausalModel(self.scm_dict)
-        # self.plot_scm()
+        self.plot_scm()
 
         self.nodes = natsort.natsorted(self.scm.cgm.dag.nodes())
         print("Nodes:", self.nodes)
@@ -58,19 +114,11 @@ class SCM:
         self.parent_nodes = {k: nx.ancestors(self.scm.cgm.dag, k) for k in self.nodes}
         print("Parent nodes:", self.parent_nodes)
 
-        # Define the generator dict that can be used to sample values
-        self.generator_dict = {
-            "x1": lambda num_samples: np.random.normal(loc=1, scale=0.1, size=num_samples),
-            "x2": lambda num_samples: np.random.normal(loc=0, scale=0.2, size=num_samples),
-            "x4": lambda num_samples: np.random.normal(loc=-1, scale=0.1, size=num_samples),
-            "x6": lambda num_samples: np.random.normal(loc=0, scale=0.5, size=num_samples),
-            "x8": lambda num_samples: np.random.normal(loc=-1, scale=0.2, size=num_samples),
-            "x9": lambda num_samples: np.random.normal(loc=1, scale=0.2, size=num_samples)
-        }
         assert all([x in self.observed_nodes for x in list(self.generator_dict.keys())])
         assert all([x not in self.computed_nodes for x in list(self.generator_dict.keys())])
     
     def plot_scm(self, output_file='out'):
+        output_file = f"{output_file}_{self.scm_type}"
         dot = self.scm.cgm.draw()
         print(dot)
         dot.render(output_file, format='jpg', cleanup=True)
@@ -474,9 +522,12 @@ def test(args, io):
 
 if __name__ == "__main__":
     # Training settings
+    scm_choices = ["scm_easy", "scm_difficult"]
     parser = argparse.ArgumentParser(description='SCM training test')
     parser.add_argument('--exp_name', type=str, default='exp', metavar='N',
                         help='Name of the experiment')
+    parser.add_argument('--scm', default=scm_choices[0], choices=scm_choices,
+                        help=f'SCM to be used for training the models (choices: {", ".join(scm_choices)}; default: {scm_choices[0]})')
     parser.add_argument('--num-training-examples', type=int, default=100, metavar='N',
                         help='Num of training examples to use')
     parser.add_argument('--num-test-examples', type=int, default=1000, metavar='N',
@@ -509,7 +560,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     args.inject_positional_features = True
-    args.exp_name = f"{args.exp_name}{'_interpretable' if args.interpretable_dgcnn else ''}_train_ex_{args.num_training_examples}{('_k_' + str(args.k)) if args.k is not None else '_fc'}{'_pos' if args.inject_positional_features else ''}"
+    args.exp_name = f"{args.exp_name}{'_hard_scm' if args.scm == 'scm_difficult' else ''}{'_interpretable' if args.interpretable_dgcnn else ''}_train_ex_{args.num_training_examples}{('_k_' + str(args.k)) if args.k is not None else '_fc'}{'_pos' if args.inject_positional_features else ''}"
     print("Experiment name:", args.exp_name)
 
     # Create the required directories
@@ -529,7 +580,7 @@ if __name__ == "__main__":
         io.cprint('Using CPU')
 
     # Create an instance of the SCM
-    scm = SCM()
+    scm = SCM(args.scm)
 
     if not args.eval:
         train(args, io)
