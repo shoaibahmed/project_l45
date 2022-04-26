@@ -17,17 +17,20 @@ def get_k_train_ex_from_file(file_name):
     config = file_parts[-3].split("_")  # file, model, config, outputs
     print(config)
     
-    assert config[-1] == "pos"
-    assert config[-3] == "k"
-    k = int(config[-2])
+    offset = 0
+    if config[-1] == "norm":
+        offset = 1
+    assert config[-1-offset] == "pos"
+    assert config[-3-offset] == "k"
+    k = int(config[-2-offset])
     
-    assert config[-6] == "train"
-    assert config[-5] == "ex"
-    num_examples = int(config[-4])
+    assert config[-6-offset] == "train"
+    assert config[-5-offset] == "ex"
+    num_examples = int(config[-4-offset])
     
     return k, num_examples
 
-root_dir = "./outputs_easy"
+root_dir = "./outputs"
 relevant_files = f"{root_dir}/*/*/training_dynamics.csv"
 files = glob.glob(relevant_files)
 print(len(files), files[:3])
