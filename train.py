@@ -13,7 +13,7 @@ import torch.nn.functional as F
 import torch.optim as optim
 from torch.optim.lr_scheduler import CosineAnnealingLR, StepLR
 
-from dgcnn import DGCNN_Reg
+from dgcnn import DGCNN
 
 import shutil
 import graphviz
@@ -27,23 +27,79 @@ from causalgraphicalmodels import StructuralCausalModel
 
 
 class SCM:
-    def __init__(self):
+    def __init__(self, scm_type):
+        assert scm_type in ["scm_easy", "scm_difficult"]
+        self.scm_type = scm_type
+
         # Define the SCM
-        self.scm_dict = {
-            "x1": None,
-            "x2": None,
-            "x3": lambda x1, x2, n_samples: (0.5 * x1) + x2,
-            "x4": None,
-            "x5": lambda x3, x4, n_samples: x3 + x4,
-            "x6": None,
-            "x7": lambda x5, x6, n_samples: x5 + x6,
-            "x8": None,
-            "x9": None,
-            "x10": lambda x7, x8, x9, n_samples: x7 + x8 + x9,
-        }
+        if scm_type == "scm_easy":
+            print("Generating data from the easy SCM instance...")
+            self.scm_dict = {
+                "x1": None,
+                "x2": None,
+                "x3": lambda x1, x2, n_samples: (0.5 * x1) + x2,
+                "x4": None,
+                "x5": lambda x3, x4, n_samples: x3 + x4,
+                "x6": None,
+                "x7": lambda x5, x6, n_samples: x5 + x6,
+                "x8": None,
+                "x9": None,
+                "x10": lambda x7, x8, x9, n_samples: x7 + x8 + x9,
+            }
+
+            # Define the generator dict that can be used to sample values
+            self.generator_dict = {
+                "x1": lambda num_samples: np.random.normal(loc=1, scale=0.1, size=num_samples),
+                "x2": lambda num_samples: np.random.normal(loc=0, scale=0.2, size=num_samples),
+                "x4": lambda num_samples: np.random.normal(loc=-1, scale=0.1, size=num_samples),
+                "x6": lambda num_samples: np.random.normal(loc=0, scale=0.5, size=num_samples),
+                "x8": lambda num_samples: np.random.normal(loc=-1, scale=0.2, size=num_samples),
+                "x9": lambda num_samples: np.random.normal(loc=1, scale=0.2, size=num_samples)
+            }
+        
+        else:
+            print("Generating data from the difficult SCM instance...")
+            self.scm_dict = {
+                # First branch
+                "x1": None,
+                "x2": None,
+                "x3": lambda x1, x2, n_samples: (0.5 * x1) + x2,
+                "x4": None,
+                "x5": lambda x3, x4, n_samples: x3 + x4,
+                "x6": None,
+                "x7": lambda x5, x6, n_samples: x5 + x6,
+                "x8": None,
+                
+                # Second branch (very similar to the first one)
+                "x9": None,
+                "x10": None,
+                "x11": lambda x9, x10, n_samples: (0.5 * x9) + x10,
+                "x12": None,
+                "x13": lambda x11, x12, n_samples: x11 + x12,
+                "x14": None,
+                "x15": lambda x13, x14, n_samples: x13 + x14,
+
+                "x16": lambda x7, x8, x15, n_samples: x7 + x8 + x15,
+            }
+
+            # Define the generator dict that can be used to sample values
+            self.generator_dict = {
+                # First branch
+                "x1": lambda num_samples: np.random.normal(loc=1, scale=0.1, size=num_samples),
+                "x2": lambda num_samples: np.random.normal(loc=0, scale=0.2, size=num_samples),
+                "x4": lambda num_samples: np.random.normal(loc=-1, scale=0.1, size=num_samples),
+                "x6": lambda num_samples: np.random.normal(loc=0, scale=0.5, size=num_samples),
+                "x8": lambda num_samples: np.random.normal(loc=-1, scale=0.2, size=num_samples),
+                
+                # Second branch
+                "x9": lambda num_samples: np.random.normal(loc=1, scale=0.1, size=num_samples),
+                "x10": lambda num_samples: np.random.normal(loc=0, scale=0.2, size=num_samples),
+                "x12": lambda num_samples: np.random.normal(loc=-1, scale=0.1, size=num_samples),
+                "x14": lambda num_samples: np.random.normal(loc=0, scale=0.5, size=num_samples)
+            }
         
         self.scm = StructuralCausalModel(self.scm_dict)
-        # self.plot_scm()
+        self.plot_scm()
 
         self.nodes = natsort.natsorted(self.scm.cgm.dag.nodes())
         print("Nodes:", self.nodes)
@@ -58,19 +114,11 @@ class SCM:
         self.parent_nodes = {k: nx.ancestors(self.scm.cgm.dag, k) for k in self.nodes}
         print("Parent nodes:", self.parent_nodes)
 
-        # Define the generator dict that can be used to sample values
-        self.generator_dict = {
-            "x1": lambda num_samples: np.random.normal(loc=1, scale=0.1, size=num_samples),
-            "x2": lambda num_samples: np.random.normal(loc=0, scale=0.2, size=num_samples),
-            "x4": lambda num_samples: np.random.normal(loc=-1, scale=0.1, size=num_samples),
-            "x6": lambda num_samples: np.random.normal(loc=0, scale=0.5, size=num_samples),
-            "x8": lambda num_samples: np.random.normal(loc=-1, scale=0.2, size=num_samples),
-            "x9": lambda num_samples: np.random.normal(loc=1, scale=0.2, size=num_samples)
-        }
         assert all([x in self.observed_nodes for x in list(self.generator_dict.keys())])
         assert all([x not in self.computed_nodes for x in list(self.generator_dict.keys())])
     
     def plot_scm(self, output_file='out'):
+        output_file = f"{output_file}_{self.scm_type}"
         dot = self.scm.cgm.draw()
         print(dot)
         dot.render(output_file, format='jpg', cleanup=True)
@@ -157,7 +205,7 @@ def _init_():
     os.system('cp train.py outputs' + '/' + args.exp_name + '/' + 'train.py.backup')
 
 
-def get_data(num_examples, device, inject_positional_features=False, intervention_node=None):
+def get_data(num_examples, device, inject_positional_features, normalized_pos_embed, intervention_node=None):
     # dataset = pd.read_csv(file_name)
     if intervention_node is not None:
         print(f"Generating {num_examples} instantiations of the SCM via intervention at {intervention_node}...")
@@ -182,6 +230,9 @@ def get_data(num_examples, device, inject_positional_features=False, interventio
     
     if inject_positional_features:
         positional_features = torch.arange(num_nodes)
+        if normalized_pos_embed:
+            print("Using normalized positional features...")
+            positional_features = positional_features / (num_nodes - 1)
         positional_features = positional_features.repeat(num_examples, 1, 1).to(device)
         dataset_input = torch.cat([dataset_input, positional_features], dim=1)
         print("Dataset input size after positional information:", dataset_input.shape)
@@ -199,8 +250,8 @@ def train(args, io):
     device = torch.device("cuda" if args.cuda else "cpu")
 
     # Load the dataset
-    train_set_input, train_set_target = get_data(args.num_training_examples, device, args.inject_positional_features)
-    test_set_input, test_set_target = get_data(args.num_test_examples, device, args.inject_positional_features)
+    train_set_input, train_set_target = get_data(args.num_training_examples, device, args.inject_positional_features, args.normalized_pos_embed)
+    test_set_input, test_set_target = get_data(args.num_test_examples, device, args.inject_positional_features, args.normalized_pos_embed)
     print(f"Train shape: {train_set_input.shape} / Test shape: {test_set_input.shape}")
     print(f"First example: {train_set_input[0, 0, :]} / Target {train_set_target[0, 0, :]}")
 
@@ -209,8 +260,8 @@ def train(args, io):
     if args.k is None:
         args.k = train_set_input.shape[2]  # Number of nodes
     print("Setting k in latent graph inference to be:", args.k)
-    model = DGCNN_Reg(args, input_features=input_features).to(device)
-    # print(str(model))
+    model = DGCNN(args, input_features=input_features, interpretable_dgcnn=args.interpretable_dgcnn).to(device)
+    print(str(model))
 
     weight_decay = 1e-4
     if args.use_sgd:
@@ -377,7 +428,7 @@ def test(args, io):
     device = torch.device("cuda" if args.cuda else "cpu")
     
     # Load test set
-    test_set_input, test_set_target = get_data(args.num_test_examples, device, args.inject_positional_features)
+    test_set_input, test_set_target = get_data(args.num_test_examples, device, args.inject_positional_features, args.normalized_pos_embed)
     print(f"Test shape: {test_set_input.shape}")
     
     # Create the model
@@ -385,7 +436,7 @@ def test(args, io):
     if args.k is None:
         args.k = test_set_input.shape[2]  # Number of nodes
     print("Setting k in latent graph inference to be:", args.k)
-    model = DGCNN_Reg(args, input_features=input_features, return_features=True).to(device)
+    model = DGCNN(args, input_features=input_features, return_features=True, interpretable_dgcnn=args.interpretable_dgcnn).to(device)
     model.load_state_dict(torch.load(args.model_output_file))  # Load the checkpoint
     model = model.eval()
 
@@ -453,7 +504,7 @@ def test(args, io):
     node_diff = {k: [] for k in scm.nodes}
     for intervention_node in scm.observed_nodes:
         test_set_input_intervention, test_set_target_intervention = get_data(args.num_test_examples, device, args.inject_positional_features, 
-                                                                             intervention_node=intervention_node)
+                                                                             args.normalized_pos_embed, intervention_node=intervention_node)
         with torch.no_grad():
             output, _, _ = model(test_set_input_intervention)
             difference = (output - test_set_target_intervention) ** 2  # Squared difference
@@ -474,9 +525,12 @@ def test(args, io):
 
 if __name__ == "__main__":
     # Training settings
+    scm_choices = ["scm_easy", "scm_difficult"]
     parser = argparse.ArgumentParser(description='SCM training test')
     parser.add_argument('--exp_name', type=str, default='exp', metavar='N',
                         help='Name of the experiment')
+    parser.add_argument('--scm', default=scm_choices[0], choices=scm_choices,
+                        help=f'SCM to be used for training the models (choices: {", ".join(scm_choices)}; default: {scm_choices[0]})')
     parser.add_argument('--num-training-examples', type=int, default=100, metavar='N',
                         help='Num of training examples to use')
     parser.add_argument('--num-test-examples', type=int, default=1000, metavar='N',
@@ -500,18 +554,20 @@ if __name__ == "__main__":
                         help='random seed (default: 1)')
     parser.add_argument('--eval', type=bool,  default=False,
                         help='evaluate the model')
-    parser.add_argument('--dropout', type=float, default=0.5,
-                        help='initial dropout rate')
     parser.add_argument('--emb_dims', type=int, default=1024, metavar='N',
                         help='Dimension of embeddings')
     parser.add_argument('--k', type=int, default=4, metavar='N',
                         help='Num of nearest neighbors to use')
-    
+    parser.add_argument('--interpretable_dgcnn', type=bool, default=False,
+                        help='use interpretable version of DGCNN (uses a single channel for the messages to be interpretable)')
+    parser.add_argument('--normalized_pos_embed', type=bool, default=False,
+                        help='use interpretable version of DGCNN (uses a single channel for the messages to be interpretable)')
     args = parser.parse_args()
 
     args.inject_positional_features = True
-    args.exp_name = f"{args.exp_name}_train_ex_{args.num_training_examples}{('_k_' + str(args.k)) if args.k is not None else '_fc'}{'_pos' if args.inject_positional_features else ''}"
-    
+    args.exp_name = f"{args.exp_name}{'_hard_scm' if args.scm == 'scm_difficult' else ''}{'_interpretable' if args.interpretable_dgcnn else ''}_train_ex_{args.num_training_examples}{('_k_' + str(args.k)) if args.k is not None else '_fc'}{'_pos' if args.inject_positional_features else ''}{'_norm' if args.normalized_pos_embed else ''}"
+    print("Experiment name:", args.exp_name)
+
     # Create the required directories
     _init_()
 
@@ -529,7 +585,7 @@ if __name__ == "__main__":
         io.cprint('Using CPU')
 
     # Create an instance of the SCM
-    scm = SCM()
+    scm = SCM(args.scm)
 
     if not args.eval:
         train(args, io)

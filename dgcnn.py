@@ -122,3 +122,92 @@ class DGCNN_Reg(nn.Module):
         if self.return_features:
             return x, (d1, d2, d3, d4), (x1.detach().cpu(), x2.detach().cpu(), x3.detach().cpu(), x4.detach().cpu())
         return x
+
+
+class Interpretable_DGCNN(nn.Module):
+    def __init__(self, args, input_features=1, output_channels=1, return_features=False):
+        super(Interpretable_DGCNN, self).__init__()
+        assert output_channels == 1
+
+        self.args = args
+        self.k = args.k
+        self.return_features = return_features
+
+        self.bn1 = nn.BatchNorm2d(1)
+        self.bn2 = nn.BatchNorm2d(1)
+        self.bn3 = nn.BatchNorm2d(1)
+        self.bn4 = nn.BatchNorm2d(1)
+        self.bn5 = nn.BatchNorm1d(1)
+
+        self.conv1 = nn.Sequential(nn.Conv2d(input_features*2, 1, kernel_size=1, bias=False),
+                                   self.bn1,
+                                   nn.LeakyReLU(negative_slope=0.2))
+        self.conv2 = nn.Sequential(nn.Conv2d(1*2, 1, kernel_size=1, bias=False),
+                                   self.bn2,
+                                   nn.LeakyReLU(negative_slope=0.2))
+        self.conv3 = nn.Sequential(nn.Conv2d(1*2, 1, kernel_size=1, bias=False),
+                                   self.bn3,
+                                   nn.LeakyReLU(negative_slope=0.2))
+        self.conv4 = nn.Sequential(nn.Conv2d(1*2, 1, kernel_size=1, bias=False),
+                                   self.bn4,
+                                   nn.LeakyReLU(negative_slope=0.2))
+        self.conv5 = nn.Sequential(nn.Conv1d(4, 1, kernel_size=1, bias=False),
+                                   self.bn5,
+                                   nn.LeakyReLU(negative_slope=0.2))
+        
+        self.reg_layer = nn.Conv1d(1, output_channels, kernel_size=1, bias=False)
+        self.use_max_reduction = False
+
+    def forward(self, x):
+        batch_size = x.size(0)
+        x, d1 = get_graph_feature(x, k=self.k, return_features=self.return_features)      # (batch_size, 3, num_points) -> (batch_size, 3*2, num_points, k)
+        x = self.conv1(x)                       # (batch_size, 3*2, num_points, k) -> (batch_size, 64, num_points, k)
+        if self.use_max_reduction:
+            x1 = x.max(dim=-1, keepdim=False)[0]    # (batch_size, 64, num_points, k) -> (batch_size, 64, num_points)
+        else:
+            x1 = x.sum(dim=-1, keepdim=False)       # (batch_size, 64, num_points, k) -> (batch_size, 64, num_points)
+
+        x, d2 = get_graph_feature(x1, k=self.k, return_features=self.return_features)     # (batch_size, 64, num_points) -> (batch_size, 64*2, num_points, k)
+        x = self.conv2(x)                       # (batch_size, 64*2, num_points, k) -> (batch_size, 64, num_points, k)
+        if self.use_max_reduction:
+            x2 = x.max(dim=-1, keepdim=False)[0]    # (batch_size, 64, num_points, k) -> (batch_size, 64, num_points)
+        else:
+            x2 = x.sum(dim=-1, keepdim=False)       # (batch_size, 64, num_points, k) -> (batch_size, 64, num_points)
+
+        x, d3 = get_graph_feature(x2, k=self.k, return_features=self.return_features)     # (batch_size, 64, num_points) -> (batch_size, 64*2, num_points, k)
+        x = self.conv3(x)                       # (batch_size, 64*2, num_points, k) -> (batch_size, 128, num_points, k)
+        if self.use_max_reduction:
+            x3 = x.max(dim=-1, keepdim=False)[0]    # (batch_size, 128, num_points, k) -> (batch_size, 128, num_points)
+        else:
+            x3 = x.sum(dim=-1, keepdim=False)       # (batch_size, 128, num_points, k) -> (batch_size, 64, num_points)
+
+        x, d4 = get_graph_feature(x3, k=self.k, return_features=self.return_features)     # (batch_size, 128, num_points) -> (batch_size, 128*2, num_points, k)
+        x = self.conv4(x)                       # (batch_size, 128*2, num_points, k) -> (batch_size, 256, num_points, k)
+        if self.use_max_reduction:
+            x4 = x.max(dim=-1, keepdim=False)[0]    # (batch_size, 256, num_points, k) -> (batch_size, 256, num_points)
+        else:
+            x4 = x.sum(dim=-1, keepdim=False)       # (batch_size, 256, num_points, k) -> (batch_size, 64, num_points)
+
+        x = torch.cat((x1, x2, x3, x4), dim=1)  # (batch_size, 64+64+128+256, num_points)
+
+        x = self.conv5(x)                       # (batch_size, 64+64+128+256, num_points) -> (batch_size, emb_dims, num_points)
+        x = self.reg_layer(x)                   # (batch_size, emb_dims, num_points) -> (batch_size, 1, num_points)
+        
+        if self.return_features:
+            return x, (d1, d2, d3, d4), (x1.detach().cpu(), x2.detach().cpu(), x3.detach().cpu(), x4.detach().cpu())
+        return x
+
+
+class DGCNN(nn.Module):
+    def __init__(self, args, input_features=1, output_channels=1, return_features=False, interpretable_dgcnn=False) -> None:
+        super().__init__()
+
+        if interpretable_dgcnn:
+            print("Using interpretable DGCNN...")
+            self.model = Interpretable_DGCNN(args, input_features, output_channels, return_features)
+        else:
+            print("Using conventional DGCNN...")
+            self.model = DGCNN_Reg(args, input_features, output_channels, return_features)
+    
+    def forward(self, x):
+        return self.model(x)
