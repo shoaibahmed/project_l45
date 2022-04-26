@@ -4,7 +4,7 @@ Repository containing code for the L45 project: *Can k-NN-based graph inference 
 
 ## Model Training / Evaluation
 
-The model training can be executed via the bash script:
+Model training/evaluation can be initiated via the bash script:
 
 ```bash
 sh ./train.sh
