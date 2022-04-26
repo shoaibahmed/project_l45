@@ -205,7 +205,7 @@ def _init_():
     os.system('cp train.py outputs' + '/' + args.exp_name + '/' + 'train.py.backup')
 
 
-def get_data(num_examples, device, inject_positional_features=False, intervention_node=None):
+def get_data(num_examples, device, inject_positional_features, normalized_pos_embed, intervention_node=None):
     # dataset = pd.read_csv(file_name)
     if intervention_node is not None:
         print(f"Generating {num_examples} instantiations of the SCM via intervention at {intervention_node}...")
@@ -230,6 +230,9 @@ def get_data(num_examples, device, inject_positional_features=False, interventio
     
     if inject_positional_features:
         positional_features = torch.arange(num_nodes)
+        if normalized_pos_embed:
+            print("Using normalized positional features...")
+            positional_features = positional_features / (num_nodes - 1)
         positional_features = positional_features.repeat(num_examples, 1, 1).to(device)
         dataset_input = torch.cat([dataset_input, positional_features], dim=1)
         print("Dataset input size after positional information:", dataset_input.shape)
@@ -247,8 +250,8 @@ def train(args, io):
     device = torch.device("cuda" if args.cuda else "cpu")
 
     # Load the dataset
-    train_set_input, train_set_target = get_data(args.num_training_examples, device, args.inject_positional_features)
-    test_set_input, test_set_target = get_data(args.num_test_examples, device, args.inject_positional_features)
+    train_set_input, train_set_target = get_data(args.num_training_examples, device, args.inject_positional_features, args.normalized_pos_embed)
+    test_set_input, test_set_target = get_data(args.num_test_examples, device, args.inject_positional_features, args.normalized_pos_embed)
     print(f"Train shape: {train_set_input.shape} / Test shape: {test_set_input.shape}")
     print(f"First example: {train_set_input[0, 0, :]} / Target {train_set_target[0, 0, :]}")
 
@@ -425,7 +428,7 @@ def test(args, io):
     device = torch.device("cuda" if args.cuda else "cpu")
     
     # Load test set
-    test_set_input, test_set_target = get_data(args.num_test_examples, device, args.inject_positional_features)
+    test_set_input, test_set_target = get_data(args.num_test_examples, device, args.inject_positional_features, args.normalized_pos_embed)
     print(f"Test shape: {test_set_input.shape}")
     
     # Create the model
@@ -501,7 +504,7 @@ def test(args, io):
     node_diff = {k: [] for k in scm.nodes}
     for intervention_node in scm.observed_nodes:
         test_set_input_intervention, test_set_target_intervention = get_data(args.num_test_examples, device, args.inject_positional_features, 
-                                                                             intervention_node=intervention_node)
+                                                                             args.normalized_pos_embed, intervention_node=intervention_node)
         with torch.no_grad():
             output, _, _ = model(test_set_input_intervention)
             difference = (output - test_set_target_intervention) ** 2  # Squared difference
@@ -557,10 +560,12 @@ if __name__ == "__main__":
                         help='Num of nearest neighbors to use')
     parser.add_argument('--interpretable_dgcnn', type=bool, default=False,
                         help='use interpretable version of DGCNN (uses a single channel for the messages to be interpretable)')
+    parser.add_argument('--normalized_pos_embed', type=bool, default=False,
+                        help='use interpretable version of DGCNN (uses a single channel for the messages to be interpretable)')
     args = parser.parse_args()
 
     args.inject_positional_features = True
-    args.exp_name = f"{args.exp_name}{'_hard_scm' if args.scm == 'scm_difficult' else ''}{'_interpretable' if args.interpretable_dgcnn else ''}_train_ex_{args.num_training_examples}{('_k_' + str(args.k)) if args.k is not None else '_fc'}{'_pos' if args.inject_positional_features else ''}"
+    args.exp_name = f"{args.exp_name}{'_hard_scm' if args.scm == 'scm_difficult' else ''}{'_interpretable' if args.interpretable_dgcnn else ''}_train_ex_{args.num_training_examples}{('_k_' + str(args.k)) if args.k is not None else '_fc'}{'_pos' if args.inject_positional_features else ''}{'_norm' if args.normalized_pos_embed else ''}"
     print("Experiment name:", args.exp_name)
 
     # Create the required directories
