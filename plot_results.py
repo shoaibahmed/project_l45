@@ -30,6 +30,7 @@ def get_k_train_ex_from_file(file_name):
     
     return k, num_examples
 
+
 root_dir = "./outputs"
 relevant_files = f"{root_dir}/*/*/training_dynamics.csv"
 files = glob.glob(relevant_files)
@@ -170,7 +171,7 @@ if plot_intervention_results:
         ax.yaxis.set_ticklabels(intervention_nodes)
 
         plt.tight_layout()
-        plt.savefig(os.path.join(output_dir, f"results_k_{k}_{num_examples}_train_ex.png"), dpi=300, bbox_inches='tight', pad_inches=0.04)
+        plt.savefig(os.path.join(output_dir, f"results_intervention_k_{k}_{num_examples}_train_ex.png"), dpi=300, bbox_inches='tight', pad_inches=0.04)
     
     # Plot the dictionary here
     num_training_examples = natsort.natsorted(list(output_dict.keys()))
@@ -206,7 +207,7 @@ if plot_intervention_results:
         plt.ylim(0, max_val)
 
         plt.tight_layout()
-        plt.savefig(os.path.join(output_dir, f"results_intervention_k_nn_{training_examples}_train_ex.png"), dpi=300)
+        plt.savefig(os.path.join(output_dir, f"results_aggregated_intervention_k_nn_{training_examples}_train_ex.png"), dpi=300)
 
 # Plot the attention results
 relevant_files = f"{root_dir}/*/*/attention_stats_layer_[0-4].csv"
@@ -256,4 +257,4 @@ if plot_attention_results:
         ax.yaxis.set_ticklabels(all_nodes)
 
         plt.tight_layout()
-        plt.savefig(os.path.join(output_dir, f"results_k_{k}_{num_examples}_train_ex_layer_{layer_idx}.png"), dpi=300, bbox_inches='tight', pad_inches=0.04)
+        plt.savefig(os.path.join(output_dir, f"results_attention_k_{k}_{num_examples}_train_ex_layer_{layer_idx}.png"), dpi=300, bbox_inches='tight', pad_inches=0.04)
