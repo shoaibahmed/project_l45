@@ -15,6 +15,7 @@ from torch.optim.lr_scheduler import CosineAnnealingLR, StepLR
 
 from dgcnn import DGCNN
 
+import random
 import shutil
 import graphviz
 import pandas as pd
@@ -562,11 +563,19 @@ if __name__ == "__main__":
                         help='use interpretable version of DGCNN (uses a single channel for the messages to be interpretable)')
     parser.add_argument('--normalized_pos_embed', type=bool, default=False,
                         help='use interpretable version of DGCNN (uses a single channel for the messages to be interpretable)')
+    
     args = parser.parse_args()
 
     args.inject_positional_features = True
     args.exp_name = f"{args.exp_name}{'_hard_scm' if args.scm == 'scm_difficult' else ''}{'_interpretable' if args.interpretable_dgcnn else ''}_train_ex_{args.num_training_examples}{('_k_' + str(args.k)) if args.k is not None else '_fc'}{'_pos' if args.inject_positional_features else ''}{'_norm' if args.normalized_pos_embed else ''}"
     print("Experiment name:", args.exp_name)
+    
+    if args.seed is not None:
+        print(f"Using seed: {args.seed}")
+        torch.manual_seed(args.seed)
+        torch.cuda.manual_seed(args.seed)
+        np.random.seed(seed=args.seed)
+        random.seed(args.seed)
 
     # Create the required directories
     _init_()
@@ -576,11 +585,9 @@ if __name__ == "__main__":
     args.model_output_file = 'outputs/%s/models/model.pth' % args.exp_name
     
     args.cuda = not args.no_cuda and torch.cuda.is_available()
-    torch.manual_seed(args.seed)
     if args.cuda:
         io.cprint(
             'Using GPU : ' + str(torch.cuda.current_device()) + ' from ' + str(torch.cuda.device_count()) + ' devices')
-        torch.cuda.manual_seed(args.seed)
     else:
         io.cprint('Using CPU')
 
